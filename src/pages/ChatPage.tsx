@@ -108,6 +108,7 @@ function ChatPage(_props: ChatPageProps) {
   const messageListRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const sidebarRef = useRef<HTMLDivElement>(null)
+  const initialRevealTimerRef = useRef<number | null>(null)
   const [currentOffset, setCurrentOffset] = useState(0)
   const [myAvatarUrl, setMyAvatarUrl] = useState<string | undefined>(undefined)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
@@ -118,6 +119,7 @@ function ChatPage(_props: ChatPageProps) {
   const [isLoadingDetail, setIsLoadingDetail] = useState(false)
   const [highlightedMessageKeys, setHighlightedMessageKeys] = useState<string[]>([])
   const [isRefreshingSessions, setIsRefreshingSessions] = useState(false)
+  const [hasInitialMessages, setHasInitialMessages] = useState(false)
 
 
   const highlightedMessageSet = useMemo(() => new Set(highlightedMessageKeys), [highlightedMessageKeys])
@@ -126,6 +128,7 @@ function ChatPage(_props: ChatPageProps) {
   const sessionMapRef = useRef<Map<string, ChatSession>>(new Map())
   const sessionsRef = useRef<ChatSession[]>([])
   const currentSessionRef = useRef<string | null>(null)
+  const prevSessionRef = useRef<string | null>(null)
   const isLoadingMessagesRef = useRef(false)
   const isLoadingMoreRef = useRef(false)
   const isConnectedRef = useRef(false)
@@ -512,6 +515,53 @@ function ChatPage(_props: ChatPageProps) {
   }, [isLoadingMessages, isLoadingMore])
 
   useEffect(() => {
+    if (initialRevealTimerRef.current !== null) {
+      window.clearTimeout(initialRevealTimerRef.current)
+      initialRevealTimerRef.current = null
+    }
+    if (!isLoadingMessages) {
+      if (messages.length === 0) {
+        setHasInitialMessages(true)
+      } else {
+        initialRevealTimerRef.current = window.setTimeout(() => {
+          setHasInitialMessages(true)
+          initialRevealTimerRef.current = null
+        }, 120)
+      }
+    }
+  }, [isLoadingMessages, messages.length])
+
+  useEffect(() => {
+    if (currentSessionId !== prevSessionRef.current) {
+      prevSessionRef.current = currentSessionId
+      if (initialRevealTimerRef.current !== null) {
+        window.clearTimeout(initialRevealTimerRef.current)
+        initialRevealTimerRef.current = null
+      }
+      if (messages.length === 0) {
+        setHasInitialMessages(false)
+      } else if (!isLoadingMessages) {
+        setHasInitialMessages(true)
+      }
+    }
+  }, [currentSessionId, messages.length, isLoadingMessages])
+
+  useEffect(() => {
+    if (currentSessionId && messages.length === 0 && !isLoadingMessages && !isLoadingMore) {
+      loadMessages(currentSessionId, 0)
+    }
+  }, [currentSessionId, messages.length, isLoadingMessages, isLoadingMore])
+
+  useEffect(() => {
+    return () => {
+      if (initialRevealTimerRef.current !== null) {
+        window.clearTimeout(initialRevealTimerRef.current)
+        initialRevealTimerRef.current = null
+      }
+    }
+  }, [])
+
+  useEffect(() => {
     isConnectedRef.current = isConnected
   }, [isConnected])
 
@@ -710,18 +760,18 @@ function ChatPage(_props: ChatPageProps) {
               </div>
             </div>
 
-            <div className="message-content-wrapper">
-              {isLoadingMessages ? (
-                <div className="loading-messages">
+            <div className={`message-content-wrapper ${hasInitialMessages ? 'loaded' : 'loading'}`}>
+              {isLoadingMessages && !hasInitialMessages && (
+                <div className="loading-messages loading-overlay">
                   <Loader2 size={24} />
                   <span>加载消息中...</span>
                 </div>
-              ) : (
-                <div
-                  className="message-list"
-                  ref={messageListRef}
-                  onScroll={handleScroll}
-                >
+              )}
+              <div
+                className={`message-list ${hasInitialMessages ? 'loaded' : 'loading'}`}
+                ref={messageListRef}
+                onScroll={handleScroll}
+              >
                   {hasMoreMessages && (
                     <div className={`load-more-trigger ${isLoadingMore ? 'loading' : ''}`}>
                       {isLoadingMore ? (
@@ -772,7 +822,6 @@ function ChatPage(_props: ChatPageProps) {
                     <span>回到底部</span>
                   </div>
                 </div>
-              )}
 
               {/* 会话详情面板 */}
               {showDetailPanel && (

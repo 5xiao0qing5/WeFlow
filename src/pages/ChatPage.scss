@@ -883,6 +883,23 @@
   min-height: 0;
   overflow: hidden;
   -webkit-app-region: no-drag;
+  position: relative;
+
+  &.loading .message-list {
+    opacity: 0;
+    transform: translateY(8px);
+    pointer-events: none;
+  }
+
+  &.loaded .message-list {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  &.loaded .loading-overlay {
+    opacity: 0;
+    pointer-events: none;
+  }
 }
 
 .message-list {
@@ -898,6 +915,7 @@
   background-color: var(--bg-tertiary);
   position: relative;
   -webkit-app-region: no-drag !important;
+  transition: opacity 240ms ease, transform 240ms ease;
 
   // 滚动条样式
   &::-webkit-scrollbar {
@@ -916,6 +934,19 @@
       background: rgba(0, 0, 0, 0.3);
     }
   }
+}
+
+.loading-messages.loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(10, 10, 10, 0.28);
+  backdrop-filter: blur(6px);
+  transition: opacity 200ms ease;
+  z-index: 2;
 }
 
 .message-list * {
@@ -1108,6 +1139,7 @@
   font-size: 14px;
   line-height: 1.6;
   word-break: break-word;
+  white-space: pre-wrap;
 }
 
 // 表情包消息
@@ -1432,6 +1464,7 @@
 
   .quoted-text {
     color: var(--text-secondary);
+    white-space: pre-wrap;
   }
 }
 

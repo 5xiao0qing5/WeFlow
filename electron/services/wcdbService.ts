@@ -49,6 +49,8 @@ export class WcdbService {
   private wcdbGetEmoticonCdnUrl: any = null
   private avatarUrlCache: Map<string, { url?: string; updatedAt: number }> = new Map()
   private readonly avatarCacheTtlMs = 10 * 60 * 1000
+  private logTimer: NodeJS.Timeout | null = null
+  private lastLogTail: string | null = null
 
   setPaths(resourcesPath: string, userDataPath: string): void {
     this.resourcesPath = resourcesPath
@@ -57,6 +59,11 @@ export class WcdbService {
 
   setLogEnabled(enabled: boolean): void {
     this.logEnabled = enabled
+    if (this.isLogEnabled() && this.initialized) {
+      this.startLogPolling()
+    } else {
+      this.stopLogPolling()
+    }
   }
 
   /**
@@ -433,6 +440,49 @@ export class WcdbService {
     }
   }
 
+  private startLogPolling(): void {
+    if (this.logTimer || !this.isLogEnabled()) return
+    this.logTimer = setInterval(() => {
+      void this.pollLogs()
+    }, 2000)
+  }
+
+  private stopLogPolling(): void {
+    if (this.logTimer) {
+      clearInterval(this.logTimer)
+      this.logTimer = null
+    }
+    this.lastLogTail = null
+  }
+
+  private async pollLogs(): Promise<void> {
+    try {
+      if (!this.wcdbGetLogs || !this.isLogEnabled()) return
+      const outPtr = [null as any]
+      const result = this.wcdbGetLogs(outPtr)
+      if (result !== 0 || !outPtr[0]) return
+      let jsonStr = ''
+      try {
+        jsonStr = this.koffi.decode(outPtr[0], 'char', -1)
+      } finally {
+        try { this.wcdbFreeString(outPtr[0]) } catch { }
+      }
+      const logs = JSON.parse(jsonStr) as string[]
+      if (!Array.isArray(logs) || logs.length === 0) return
+      let startIdx = 0
+      if (this.lastLogTail) {
+        const idx = logs.lastIndexOf(this.lastLogTail)
+        if (idx >= 0) startIdx = idx + 1
+      }
+      for (let i = startIdx; i < logs.length; i += 1) {
+        this.writeLog(`wcdb: ${logs[i]}`)
+      }
+      this.lastLogTail = logs[logs.length - 1]
+    } catch (e) {
+      // ignore polling errors
+    }
+  }
+
   private decodeJsonPtr(outPtr: any): string | null {
     if (!outPtr) return null
     try {
@@ -545,6 +595,9 @@ export class WcdbService {
           console.warn('设置 wxid 失败:', e)
         }
       }
+      if (this.isLogEnabled()) {
+        this.startLogPolling()
+      }
       this.writeLog(`open ok handle=${handle}`)
       return true
     } catch (e) {
@@ -571,6 +624,7 @@ export class WcdbService {
       this.currentKey = null
       this.currentWxid = null
       this.initialized = false
+      this.stopLogPolling()
     }
   }
 
