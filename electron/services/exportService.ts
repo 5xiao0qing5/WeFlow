@@ -428,6 +428,10 @@ class ExportService {
     return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
   }
 
+  private normalizeTxtCell(value: string): string {
+    return value.replace(/\r?\n/g, ' ').replace(/\t/g, ' ').trim()
+  }
+
   /**
    * 导出媒体文件到指定目录
    */
@@ -1881,6 +1885,201 @@ class ExportService {
   }
 
   /**
+   * 导出单个会话为 TXT 格式（与 Excel 精简列一致）
+   */
+  async exportSessionToTxt(
+    sessionId: string,
+    outputPath: string,
+    options: ExportOptions,
+    onProgress?: (progress: ExportProgress) => void
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const conn = await this.ensureConnected()
+      if (!conn.success || !conn.cleanedWxid) return { success: false, error: conn.error }
+
+      const cleanedMyWxid = conn.cleanedWxid
+      const isGroup = sessionId.includes('@chatroom')
+
+      const sessionInfo = await this.getContactInfo(sessionId)
+
+      onProgress?.({
+        current: 0,
+        total: 100,
+        currentSession: sessionInfo.displayName,
+        phase: 'preparing'
+      })
+
+      const collected = await this.collectMessages(sessionId, cleanedMyWxid, options.dateRange)
+
+      onProgress?.({
+        current: 30,
+        total: 100,
+        currentSession: sessionInfo.displayName,
+        phase: 'exporting'
+      })
+
+      const sortedMessages = collected.rows.sort((a, b) => a.createTime - b.createTime)
+
+      const { exportMediaEnabled, mediaRootDir, mediaRelativePrefix } = this.getMediaLayout(outputPath, options)
+
+      const mediaMessages = exportMediaEnabled
+        ? sortedMessages.filter(msg => {
+            const t = msg.localType
+            return (t === 3 && options.exportImages) ||
+              (t === 47 && options.exportEmojis) ||
+              (t === 34 && options.exportVoices && !options.exportVoiceAsText)
+          })
+        : []
+
+      const mediaCache = new Map<string, MediaExportItem | null>()
+
+      if (mediaMessages.length > 0) {
+        onProgress?.({
+          current: 40,
+          total: 100,
+          currentSession: sessionInfo.displayName,
+          phase: 'exporting-media'
+        })
+
+        const MEDIA_CONCURRENCY = 8
+        await parallelLimit(mediaMessages, MEDIA_CONCURRENCY, async (msg) => {
+          const mediaKey = `${msg.localType}_${msg.localId}`
+          if (!mediaCache.has(mediaKey)) {
+            const mediaItem = await this.exportMediaForMessage(msg, sessionId, mediaRootDir, mediaRelativePrefix, {
+              exportImages: options.exportImages,
+              exportVoices: options.exportVoices,
+              exportEmojis: options.exportEmojis,
+              exportVoiceAsText: options.exportVoiceAsText
+            })
+            mediaCache.set(mediaKey, mediaItem)
+          }
+        })
+      }
+
+      const voiceMessages = options.exportVoiceAsText
+        ? sortedMessages.filter(msg => msg.localType === 34)
+        : []
+
+      const voiceTranscriptMap = new Map<number, string>()
+
+      if (voiceMessages.length > 0) {
+        onProgress?.({
+          current: 55,
+          total: 100,
+          currentSession: sessionInfo.displayName,
+          phase: 'exporting-voice'
+        })
+
+        const VOICE_CONCURRENCY = 4
+        await parallelLimit(voiceMessages, VOICE_CONCURRENCY, async (msg) => {
+          const transcript = await this.transcribeVoice(sessionId, String(msg.localId))
+          voiceTranscriptMap.set(msg.localId, transcript)
+        })
+      }
+
+      const lines: string[] = []
+      lines.push(['序号', '时间', '发送者身份', '消息类型', '内容'].join('\t'))
+
+      for (let i = 0; i < sortedMessages.length; i++) {
+        const msg = sortedMessages[i]
+        const mediaKey = `${msg.localType}_${msg.localId}`
+        const mediaItem = mediaCache.get(mediaKey) || null
+
+        let senderRole: string
+        if (msg.isSend) {
+          senderRole = '我'
+        } else if (isGroup && msg.senderUsername) {
+          const contactDetail = await wcdbService.getContact(msg.senderUsername)
+          if (contactDetail.success && contactDetail.contact) {
+            const senderNickname = contactDetail.contact.nickName || msg.senderUsername
+            const senderRemark = contactDetail.contact.remark || ''
+            senderRole = senderRemark || senderNickname
+          } else {
+            senderRole = msg.senderUsername
+          }
+        } else {
+          const contactDetail = await wcdbService.getContact(sessionId)
+          if (contactDetail.success && contactDetail.contact) {
+            const senderNickname = contactDetail.contact.nickName || sessionId
+            const senderRemark = contactDetail.contact.remark || ''
+            senderRole = senderRemark || senderNickname
+          } else {
+            senderRole = sessionInfo.displayName || sessionId
+          }
+        }
+
+        let contentValue: string
+        if (mediaItem) {
+          contentValue = mediaItem.relativePath
+        } else if (msg.localType === 34 && options.exportVoiceAsText) {
+          contentValue = voiceTranscriptMap.get(msg.localId) || '[语音消息 - 转文字失败]'
+        } else {
+          contentValue = this.parseMessageContent(msg.content, msg.localType) || ''
+        }
+
+        lines.push([
+          String(i + 1),
+          this.formatTimestamp(msg.createTime),
+          this.normalizeTxtCell(senderRole),
+          this.getMessageTypeName(msg.localType),
+          this.normalizeTxtCell(contentValue)
+        ].join('\t'))
+
+        if ((i + 1) % 100 === 0) {
+          const progress = 30 + Math.floor((i + 1) / sortedMessages.length * 50)
+          onProgress?.({
+            current: progress,
+            total: 100,
+            currentSession: sessionInfo.displayName,
+            phase: 'exporting'
+          })
+        }
+      }
+
+      onProgress?.({
+        current: 90,
+        total: 100,
+        currentSession: sessionInfo.displayName,
+        phase: 'writing'
+      })
+
+      fs.writeFileSync(outputPath, lines.join('\n'), 'utf-8')
+
+      onProgress?.({
+        current: 100,
+        total: 100,
+        currentSession: sessionInfo.displayName,
+        phase: 'complete'
+      })
+
+      return { success: true }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  }
+
+  async exportSession(
+    sessionId: string,
+    outputPath: string,
+    options: ExportOptions,
+    onProgress?: (progress: ExportProgress) => void
+  ): Promise<{ success: boolean; error?: string }> {
+    if (options.format === 'json') {
+      return this.exportSessionToDetailedJson(sessionId, outputPath, options)
+    }
+    if (options.format === 'chatlab' || options.format === 'chatlab-jsonl') {
+      return this.exportSessionToChatLab(sessionId, outputPath, options)
+    }
+    if (options.format === 'excel') {
+      return this.exportSessionToExcel(sessionId, outputPath, options, onProgress)
+    }
+    if (options.format === 'txt') {
+      return this.exportSessionToTxt(sessionId, outputPath, options, onProgress)
+    }
+    return { success: false, error: `不支持的格式: ${options.format}` }
+  }
+
+  /**
    * 批量导出多个会话
    */
   async exportSessions(
@@ -1930,18 +2129,10 @@ class ExportService {
         let ext = '.json'
         if (options.format === 'chatlab-jsonl') ext = '.jsonl'
         else if (options.format === 'excel') ext = '.xlsx'
+        else if (options.format === 'txt') ext = '.txt'
         const outputPath = path.join(sessionDir, `${safeName}${ext}`)
 
-        let result: { success: boolean; error?: string }
-        if (options.format === 'json') {
-          result = await this.exportSessionToDetailedJson(sessionId, outputPath, options)
-        } else if (options.format === 'chatlab' || options.format === 'chatlab-jsonl') {
-          result = await this.exportSessionToChatLab(sessionId, outputPath, options)
-        } else if (options.format === 'excel') {
-          result = await this.exportSessionToExcel(sessionId, outputPath, options)
-        } else {
-          result = { success: false, error: `不支持的格式: ${options.format}` }
-        }
+        const result = await this.exportSession(sessionId, outputPath, options)
 
         if (result.success) {
           successCount++

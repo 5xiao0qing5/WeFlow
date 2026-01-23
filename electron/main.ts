@@ -702,7 +702,7 @@ function registerIpcHandlers() {
   })
 
   ipcMain.handle('export:exportSession', async (_, sessionId: string, outputPath: string, options: ExportOptions) => {
-    return exportService.exportSessionToChatLab(sessionId, outputPath, options)
+    return exportService.exportSession(sessionId, outputPath, options)
   })
 
   // 数据分析相关
