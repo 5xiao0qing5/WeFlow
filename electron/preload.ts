@@ -212,6 +212,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 朋友圈
   sns: {
     getTimeline: (limit: number, offset: number, usernames?: string[], keyword?: string, startTime?: number, endTime?: number) =>
-      ipcRenderer.invoke('sns:getTimeline', limit, offset, usernames, keyword, startTime, endTime)
+      ipcRenderer.invoke('sns:getTimeline', limit, offset, usernames, keyword, startTime, endTime),
+    exportTimeline: (outputDir: string, filters: { usernames?: string[]; keyword?: string; startTime?: number; endTime?: number }, options: { format: 'json' | 'excel' | 'txt'; exportMedia?: boolean }) =>
+      ipcRenderer.invoke('sns:exportTimeline', outputDir, filters, options),
+    onExportProgress: (callback: (payload: { current: number; total: number; message: string }) => void) => {
+      ipcRenderer.on('sns:exportProgress', (_, payload) => callback(payload))
+      return () => ipcRenderer.removeAllListeners('sns:exportProgress')
+    }
   }
 })

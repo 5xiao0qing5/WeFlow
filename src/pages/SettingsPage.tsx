@@ -58,7 +58,7 @@ function SettingsPage() {
   const [transcribeLanguages, setTranscribeLanguages] = useState<string[]>(['zh'])
   const [exportDefaultFormat, setExportDefaultFormat] = useState('excel')
   const [exportDefaultDateRange, setExportDefaultDateRange] = useState('today')
-  const [exportDefaultMedia, setExportDefaultMedia] = useState(false)
+  const [exportDefaultMedia, setExportDefaultMedia] = useState(true)
   const [exportDefaultVoiceAsText, setExportDefaultVoiceAsText] = useState(true)
   const [exportDefaultExcelCompactColumns, setExportDefaultExcelCompactColumns] = useState(true)
   const [exportDefaultTxtColumns, setExportDefaultTxtColumns] = useState<string[]>(['index', 'time', 'senderRole', 'messageType', 'content'])
@@ -158,7 +158,8 @@ function SettingsPage() {
       setTranscribeLanguages(savedTranscribeLanguages)
       setExportDefaultFormat(savedExportDefaultFormat || 'excel')
       setExportDefaultDateRange(savedExportDefaultDateRange || 'today')
-      setExportDefaultMedia(savedExportDefaultMedia ?? false)
+      const resolvedExportDefaultMedia = savedExportDefaultMedia ?? true
+      setExportDefaultMedia(resolvedExportDefaultMedia)
       setExportDefaultVoiceAsText(savedExportDefaultVoiceAsText ?? true)
       setExportDefaultExcelCompactColumns(savedExportDefaultExcelCompactColumns ?? true)
       setExportDefaultTxtColumns(
@@ -172,6 +173,10 @@ function SettingsPage() {
         const defaultLanguages = ['zh']
         setTranscribeLanguages(defaultLanguages)
         await configService.setTranscribeLanguages(defaultLanguages)
+      }
+
+      if (savedExportDefaultMedia == null) {
+        await configService.setExportDefaultMedia(true)
       }
 
       if (!savedExportDefaultTxtColumns || savedExportDefaultTxtColumns.length === 0) {

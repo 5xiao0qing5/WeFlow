@@ -18,6 +18,7 @@ import { KeyService } from './services/keyService'
 import { voiceTranscribeService } from './services/voiceTranscribeService'
 import { videoService } from './services/videoService'
 import { snsService } from './services/snsService'
+import { snsExportService, SnsExportOptions, SnsExportProgress } from './services/snsExportService'
 
 
 // 配置自动更新
@@ -675,6 +676,15 @@ function registerIpcHandlers() {
 
   ipcMain.handle('sns:getTimeline', async (_, limit: number, offset: number, usernames?: string[], keyword?: string, startTime?: number, endTime?: number) => {
     return snsService.getTimeline(limit, offset, usernames, keyword, startTime, endTime)
+  })
+
+  ipcMain.handle('sns:exportTimeline', async (event, outputDir: string, filters: { usernames?: string[]; keyword?: string; startTime?: number; endTime?: number }, options: SnsExportOptions) => {
+    const onProgress = (progress: SnsExportProgress) => {
+      if (!event.sender.isDestroyed()) {
+        event.sender.send('sns:exportProgress', progress)
+      }
+    }
+    return snsExportService.exportTimeline(outputDir, filters, options, onProgress)
   })
 
   // 私聊克隆

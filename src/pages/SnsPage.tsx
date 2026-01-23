@@ -1,7 +1,8 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { RefreshCw, Heart, Search, Calendar, User, X, Filter } from 'lucide-react'
+import { RefreshCw, Heart, Search, Calendar, User, X, Filter, Download, FileJson, FileSpreadsheet, FileText, Loader2, FolderOpen } from 'lucide-react'
 import { Avatar } from '../components/Avatar'
 import { ImagePreview } from '../components/ImagePreview'
+import * as configService from '../services/config'
 import './SnsPage.scss'
 
 interface SnsPost {
@@ -66,6 +67,13 @@ export default function SnsPage() {
     const [contactSearch, setContactSearch] = useState('')
     const [contactsLoading, setContactsLoading] = useState(false)
     const [previewImage, setPreviewImage] = useState<string | null>(null)
+    const [showExportModal, setShowExportModal] = useState(false)
+    const [exportFormat, setExportFormat] = useState<'json' | 'excel' | 'txt'>('excel')
+    const [exportMedia, setExportMedia] = useState(true)
+    const [exportFolder, setExportFolder] = useState('')
+    const [isExporting, setIsExporting] = useState(false)
+    const [exportProgress, setExportProgress] = useState({ current: 0, total: 0, message: '' })
+    const [exportResult, setExportResult] = useState<{ success: boolean; outputDir?: string; outputPath?: string; error?: string } | null>(null)
 
     const loadPosts = useCallback(async (reset = false) => {
         if (loadingRef.current) return
@@ -181,6 +189,41 @@ export default function SnsPage() {
         loadPosts(true)
     }, [selectedUsernames, searchKeyword, startDate, endDate])
 
+    useEffect(() => {
+        const loadExportDefaults = async () => {
+            try {
+                const [savedFormat, savedMedia, savedPath] = await Promise.all([
+                    configService.getExportDefaultFormat(),
+                    configService.getExportDefaultMedia(),
+                    configService.getExportPath()
+                ])
+                const formatValue = savedFormat === 'json' || savedFormat === 'excel' || savedFormat === 'txt'
+                    ? savedFormat
+                    : 'excel'
+                setExportFormat(formatValue)
+                setExportMedia(savedMedia ?? true)
+                if (savedPath) {
+                    setExportFolder(savedPath)
+                } else {
+                    const downloadsPath = await window.electronAPI.app.getDownloadsPath()
+                    setExportFolder(downloadsPath)
+                }
+            } catch (error) {
+                console.error('Failed to load export defaults:', error)
+            }
+        }
+        loadExportDefaults()
+    }, [])
+
+    useEffect(() => {
+        const removeListener = window.electronAPI.sns.onExportProgress?.((payload) => {
+            setExportProgress(payload)
+        })
+        return () => {
+            removeListener?.()
+        }
+    }, [])
+
     const handleScroll = (e: React.UIEvent<HTMLDivElement>) => {
         const { scrollTop, clientHeight, scrollHeight } = e.currentTarget
         if (scrollHeight - scrollTop - clientHeight < 200 && hasMore && !loading) {
@@ -217,6 +260,48 @@ export default function SnsPage() {
         setStartDate('')
         setEndDate('')
     }
+
+    const handleExport = async () => {
+        if (!exportFolder) {
+            setExportResult({ success: false, error: '未设置导出路径' })
+            return
+        }
+
+        const startTs = startDate ? Math.floor(new Date(startDate).getTime() / 1000) : undefined
+        const endTs = endDate ? Math.floor(new Date(endDate).getTime() / 1000) + 86399 : undefined
+
+        setShowExportModal(false)
+        setIsExporting(true)
+        setExportProgress({ current: 0, total: 0, message: '准备导出...' })
+        setExportResult(null)
+
+        try {
+            const result = await window.electronAPI.sns.exportTimeline(
+                exportFolder,
+                {
+                    usernames: selectedUsernames,
+                    keyword: searchKeyword,
+                    startTime: startTs,
+                    endTime: endTs
+                },
+                {
+                    format: exportFormat,
+                    exportMedia
+                }
+            )
+            setExportResult(result)
+        } catch (error) {
+            setExportResult({ success: false, error: String(error) })
+        } finally {
+            setIsExporting(false)
+        }
+    }
+
+    const exportFormatOptions = [
+        { value: 'json' as const, label: 'JSON', icon: <FileJson size={16} /> },
+        { value: 'excel' as const, label: 'Excel', icon: <FileSpreadsheet size={16} /> },
+        { value: 'txt' as const, label: 'TXT', icon: <FileText size={16} /> }
+    ]
 
     const filteredContacts = contacts.filter(c =>
         c.displayName.toLowerCase().includes(contactSearch.toLowerCase()) ||
@@ -320,6 +405,9 @@ export default function SnsPage() {
                             <h2>朋友圈</h2>
                         </div>
                         <div className="header-right">
+                            <button className="icon-btn" onClick={() => setShowExportModal(true)}>
+                                <Download size={18} />
+                            </button>
                             <button onClick={() => loadPosts(true)} disabled={loading} className="icon-btn refresh-btn">
                                 <RefreshCw size={18} className={loading ? 'spinning' : ''} />
                             </button>
@@ -415,6 +503,120 @@ export default function SnsPage() {
             </div>
             {previewImage && (
                 <ImagePreview src={previewImage} onClose={() => setPreviewImage(null)} />
+            )}
+            {showExportModal && (
+                <div className="sns-export-overlay" onClick={() => setShowExportModal(false)}>
+                    <div className="sns-export-modal" onClick={e => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h3>导出朋友圈</h3>
+                            <button className="icon-btn" onClick={() => setShowExportModal(false)}>
+                                <X size={18} />
+                            </button>
+                        </div>
+
+                        <div className="modal-section">
+                            <label>导出格式</label>
+                            <div className="format-options">
+                                {exportFormatOptions.map(option => (
+                                    <button
+                                        key={option.value}
+                                        className={`format-btn ${exportFormat === option.value ? 'active' : ''}`}
+                                        onClick={() => setExportFormat(option.value)}
+                                    >
+                                        {option.icon}
+                                        <span>{option.label}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="modal-section">
+                            <label>媒体导出</label>
+                            <div className="toggle-row">
+                                <span>{exportMedia ? '已开启' : '已关闭'}</span>
+                                <label className="switch" htmlFor="sns-export-media">
+                                    <input
+                                        id="sns-export-media"
+                                        type="checkbox"
+                                        checked={exportMedia}
+                                        onChange={e => setExportMedia(e.target.checked)}
+                                    />
+                                    <span className="slider" />
+                                </label>
+                            </div>
+                        </div>
+
+                        <div className="modal-section">
+                            <label>导出路径</label>
+                            <div className="path-row">
+                                <span className="path-value">{exportFolder || '未设置'}</span>
+                                {exportFolder && (
+                                    <button className="path-action" onClick={() => window.electronAPI.shell.openPath(exportFolder)}>
+                                        <FolderOpen size={16} />
+                                        打开
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="modal-section">
+                            <label>当前筛选</label>
+                            <div className="filter-summary">
+                                <span>{selectedUsernames.length > 0 ? `好友 ${selectedUsernames.length} 位` : '全部好友'}</span>
+                                <span>{searchKeyword ? `关键词 “${searchKeyword}”` : '无关键词'}</span>
+                                <span>{startDate || endDate ? `${startDate || '不限'} ~ ${endDate || '不限'}` : '不限时间'}</span>
+                            </div>
+                        </div>
+
+                        <div className="modal-actions">
+                            <button className="btn-secondary" onClick={() => setShowExportModal(false)}>取消</button>
+                            <button className="btn-primary" onClick={handleExport} disabled={isExporting}>
+                                {isExporting ? '导出中...' : '开始导出'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            {isExporting && (
+                <div className="sns-export-overlay">
+                    <div className="sns-export-progress">
+                        <Loader2 className="spinner" size={28} />
+                        <p>{exportProgress.message || '正在导出...'}</p>
+                        {exportProgress.total > 0 && (
+                            <div className="progress-bar">
+                                <div
+                                    className="progress-fill"
+                                    style={{ width: `${Math.min((exportProgress.current / exportProgress.total) * 100, 100)}%` }}
+                                />
+                            </div>
+                        )}
+                        {exportProgress.total > 0 && (
+                            <div className="progress-text">{exportProgress.current} / {exportProgress.total}</div>
+                        )}
+                    </div>
+                </div>
+            )}
+            {exportResult && (
+                <div className="sns-export-overlay" onClick={() => setExportResult(null)}>
+                    <div className="sns-export-result" onClick={e => e.stopPropagation()}>
+                        <div className={`result-status ${exportResult.success ? 'success' : 'error'}`}>
+                            {exportResult.success ? '导出完成' : '导出失败'}
+                        </div>
+                        {exportResult.success ? (
+                            <p>文件已保存至：{exportResult.outputPath}</p>
+                        ) : (
+                            <p>{exportResult.error || '导出失败'}</p>
+                        )}
+                        <div className="modal-actions">
+                            {exportResult.success && exportResult.outputDir && (
+                                <button className="btn-secondary" onClick={() => window.electronAPI.shell.openPath(exportResult.outputDir)}>
+                                    打开文件夹
+                                </button>
+                            )}
+                            <button className="btn-primary" onClick={() => setExportResult(null)}>知道了</button>
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     )

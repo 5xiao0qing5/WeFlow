@@ -23,6 +23,12 @@ class SnsService {
         this.contactCache = new ContactCacheService(config.get('cachePath') as string)
     }
 
+    private normalizeMediaUrl(url?: string): string {
+        if (!url) return ''
+        if (url.startsWith('//')) return `https:${url}`
+        return url
+    }
+
     async getTimeline(limit: number = 20, offset: number = 0, usernames?: string[], keyword?: string, startTime?: number, endTime?: number): Promise<{ success: boolean; timeline?: SnsPost[]; error?: string }> {
         console.log('[SnsService] getTimeline called with:', { limit, offset, usernames, keyword, startTime, endTime })
 
@@ -38,10 +44,9 @@ class SnsService {
             const enrichedTimeline = result.timeline.map((post: any) => {
                 const contact = this.contactCache.get(post.username)
 
-                // 修复媒体 URL，如果是 http 则尝试用 https (虽然 qpic 可能不支持强制 https，但通常支持)
-                const fixedMedia = post.media.map((m: any) => ({
-                    url: m.url.replace('http://', 'https://'),
-                    thumb: m.thumb.replace('http://', 'https://')
+                const fixedMedia = (post.media || []).map((m: any) => ({
+                    url: this.normalizeMediaUrl(m.url),
+                    thumb: this.normalizeMediaUrl(m.thumb)
                 }))
 
                 return {

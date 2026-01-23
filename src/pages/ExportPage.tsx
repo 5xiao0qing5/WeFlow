@@ -58,7 +58,7 @@ function ExportPage() {
     },
     useAllTime: false,
     exportAvatars: true,
-    exportMedia: false,
+    exportMedia: true,
     exportImages: true,
     exportVoices: true,
     exportEmojis: true,
@@ -148,7 +148,7 @@ function ExportPage() {
         format: (savedFormat as ExportOptions['format']) || 'excel',
         useAllTime: rangeDefaults.useAllTime,
         dateRange: rangeDefaults.dateRange,
-        exportMedia: savedMedia ?? false,
+        exportMedia: savedMedia ?? true,
         exportVoiceAsText: savedVoiceAsText ?? true,
         excelCompactColumns: savedExcelCompactColumns ?? true,
         txtColumns

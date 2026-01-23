@@ -338,6 +338,12 @@ export interface ElectronAPI {
       }>
       error?: string
     }>
+    exportTimeline: (
+      outputDir: string,
+      filters: { usernames?: string[]; keyword?: string; startTime?: number; endTime?: number },
+      options: { format: 'json' | 'excel' | 'txt'; exportMedia?: boolean }
+    ) => Promise<{ success: boolean; outputDir?: string; outputPath?: string; error?: string }>
+    onExportProgress: (callback: (payload: { current: number; total: number; message: string }) => void) => () => void
   }
 }
 
