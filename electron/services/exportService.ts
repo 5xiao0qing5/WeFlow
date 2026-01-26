@@ -2573,7 +2573,9 @@ class ExportService {
         phase: 'writing'
       })
 
-      fs.writeFileSync(outputPath, lines.join('\n'), 'utf-8')
+      const content = lines.join('\n')
+      const contentWithBom = content.startsWith('\ufeff') ? content : `\ufeff${content}`
+      fs.writeFileSync(outputPath, contentWithBom, 'utf-8')
 
       onProgress?.({
         current: 100,
