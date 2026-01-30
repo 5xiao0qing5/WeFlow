@@ -19,6 +19,7 @@ interface ExportOptions {
   exportMedia: boolean
   exportImages: boolean
   exportVoices: boolean
+  exportVideos: boolean
   exportEmojis: boolean
   exportVoiceAsText: boolean
   excelCompactColumns: boolean
@@ -65,6 +66,7 @@ function ExportPage() {
     exportMedia: false,
     exportImages: true,
     exportVoices: true,
+    exportVideos: true,
     exportEmojis: true,
     exportVoiceAsText: true,
     excelCompactColumns: true,
@@ -257,6 +259,7 @@ function ExportPage() {
           exportMedia: true,
           exportImages: true,
           exportVoices: true,
+          exportVideos: true,
           exportEmojis: true,
           exportVoiceAsText: true
         }
@@ -286,6 +289,7 @@ function ExportPage() {
         exportMedia: options.exportMedia,
         exportImages: options.exportMedia && options.exportImages,
         exportVoices: options.exportMedia && options.exportVoices,
+        exportVideos: options.exportMedia && options.exportVideos,
         exportEmojis: options.exportMedia && options.exportEmojis,
         exportVoiceAsText: options.exportVoiceAsText,  // 即使不导出媒体，也可以导出语音转文字内容
         excelCompactColumns: options.excelCompactColumns,
@@ -609,7 +613,7 @@ function ExportPage() {
           )}
           <div className="setting-section">
             <h3>媒体文件</h3>
-            <p className="setting-subtitle">导出图片/语音/表情并在记录内写入相对路径</p>
+            <p className="setting-subtitle">导出图片/语音/视频/表情并在记录内写入相对路径</p>
             <div className="media-options-card">
               <div className="media-switch-row">
                 <div className="media-switch-info">
@@ -661,12 +665,27 @@ function ExportPage() {
               <label className="media-checkbox-row">
                 <div className="media-checkbox-info">
                   <span className="media-checkbox-title">语音转文字</span>
-                  <span className="media-checkbox-desc">将语音消息转换为文字导出（不导出语音文件）</span>
+                  <span className="media-checkbox-desc">将语音消息转换为文字导出</span>
                 </div>
                 <input
                   type="checkbox"
                   checked={options.exportVoiceAsText}
                   onChange={e => setOptions({ ...options, exportVoiceAsText: e.target.checked })}
+                />
+              </label>
+
+              <div className="media-option-divider"></div>
+
+              <label className={`media-checkbox-row ${!options.exportMedia ? 'disabled' : ''}`}>
+                <div className="media-checkbox-info">
+                  <span className="media-checkbox-title">视频</span>
+                  <span className="media-checkbox-desc">直接复制视频文件到导出目录</span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={options.exportVideos}
+                  disabled={!options.exportMedia}
+                  onChange={e => setOptions({ ...options, exportVideos: e.target.checked })}
                 />
               </label>
 

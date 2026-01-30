@@ -73,6 +73,7 @@ export interface ExportOptions {
   exportAvatars?: boolean
   exportImages?: boolean
   exportVoices?: boolean
+  exportVideos?: boolean
   exportEmojis?: boolean
   exportVoiceAsText?: boolean
   excelCompactColumns?: boolean
@@ -184,6 +185,20 @@ class ExportService {
     const info = { displayName, avatarUrl }
     this.contactCache.set(username, info)
     return info
+  }
+
+  private async preloadContacts(
+    usernames: Iterable<string>,
+    cache: Map<string, { success: boolean; contact?: any; error?: string }>,
+    limit = 8
+  ): Promise<void> {
+    const unique = Array.from(new Set(Array.from(usernames).filter(Boolean)))
+    if (unique.length === 0) return
+    await parallelLimit(unique, limit, async (username) => {
+      if (cache.has(username)) return
+      const result = await wcdbService.getContact(username)
+      cache.set(username, result)
+    })
   }
 
   /**
@@ -859,10 +874,10 @@ class ExportService {
     options: {
       exportImages?: boolean
       exportVoices?: boolean
+      exportVideos?: boolean
       exportEmojis?: boolean
       exportVoiceAsText?: boolean
       includeVoiceWithTranscript?: boolean
-      exportVideos?: boolean
     }
   ): Promise<MediaExportItem | null> {
     const localType = msg.localType
@@ -877,8 +892,7 @@ class ExportService {
 
     // 语音消息
     if (localType === 34) {
-      const shouldKeepVoiceFile = options.includeVoiceWithTranscript || !options.exportVoiceAsText
-      if (shouldKeepVoiceFile && options.exportVoices) {
+      if (options.exportVoices) {
         return this.exportVoice(msg, sessionId, mediaRootDir, mediaRelativePrefix)
       }
       if (options.exportVoiceAsText) {
@@ -1233,7 +1247,7 @@ class ExportService {
     mediaRelativePrefix: string
   } {
     const exportMediaEnabled = options.exportMedia === true &&
-      Boolean(options.exportImages || options.exportVoices || options.exportEmojis)
+      Boolean(options.exportImages || options.exportVoices || options.exportVideos || options.exportEmojis)
     const outputDir = path.dirname(outputPath)
     const outputBaseName = path.basename(outputPath, path.extname(outputPath))
     const useSharedMediaLayout = options.sessionLayout === 'shared'
@@ -1681,16 +1695,20 @@ class ExportService {
         phase: 'preparing'
       })
 
-      if (options.exportVoiceAsText) {
-        await this.ensureVoiceModel(onProgress)
-      }
-
       const collected = await this.collectMessages(sessionId, cleanedMyWxid, options.dateRange)
       const allMessages = collected.rows
 
       // 如果没有消息,不创建文件
       if (allMessages.length === 0) {
         return { success: false, error: '该会话在指定时间范围内没有消息' }
+      }
+
+      const voiceMessages = options.exportVoiceAsText
+        ? allMessages.filter(msg => msg.localType === 34)
+        : []
+
+      if (options.exportVoiceAsText && voiceMessages.length > 0) {
+        await this.ensureVoiceModel(onProgress)
       }
 
       if (isGroup) {
@@ -1707,7 +1725,8 @@ class ExportService {
           const t = msg.localType
           return (t === 3 && options.exportImages) ||   // 图片
             (t === 47 && options.exportEmojis) ||  // 表情
-            (t === 34 && options.exportVoices && !options.exportVoiceAsText)  // 语音文件（非转文字）
+            (t === 43 && options.exportVideos) ||  // 视频
+            (t === 34 && options.exportVoices)  // 语音文件
         })
         : []
 
@@ -1729,6 +1748,7 @@ class ExportService {
             const mediaItem = await this.exportMediaForMessage(msg, sessionId, mediaRootDir, mediaRelativePrefix, {
               exportImages: options.exportImages,
               exportVoices: options.exportVoices,
+              exportVideos: options.exportVideos,
               exportEmojis: options.exportEmojis,
               exportVoiceAsText: options.exportVoiceAsText
             })
@@ -1738,10 +1758,6 @@ class ExportService {
       }
 
       // ========== 阶段2：并行语音转文字 ==========
-      const voiceMessages = options.exportVoiceAsText
-        ? allMessages.filter(msg => msg.localType === 34)
-        : []
-
       const voiceTranscriptMap = new Map<number, string>()
 
       if (voiceMessages.length > 0) {
@@ -1895,16 +1911,27 @@ class ExportService {
         phase: 'preparing'
       })
 
-      if (options.exportVoiceAsText) {
-        await this.ensureVoiceModel(onProgress)
-      }
-
       const collected = await this.collectMessages(sessionId, cleanedMyWxid, options.dateRange)
 
       // 如果没有消息,不创建文件
       if (collected.rows.length === 0) {
         return { success: false, error: '该会话在指定时间范围内没有消息' }
       }
+
+      const voiceMessages = options.exportVoiceAsText
+        ? collected.rows.filter(msg => msg.localType === 34)
+        : []
+
+      if (options.exportVoiceAsText && voiceMessages.length > 0) {
+        await this.ensureVoiceModel(onProgress)
+      }
+
+      const senderUsernames = new Set<string>()
+      for (const msg of collected.rows) {
+        if (msg.senderUsername) senderUsernames.add(msg.senderUsername)
+      }
+      senderUsernames.add(sessionId)
+      await this.preloadContacts(senderUsernames, contactCache)
 
       const { exportMediaEnabled, mediaRootDir, mediaRelativePrefix } = this.getMediaLayout(outputPath, options)
 
@@ -1914,7 +1941,8 @@ class ExportService {
           const t = msg.localType
           return (t === 3 && options.exportImages) ||
             (t === 47 && options.exportEmojis) ||
-            (t === 34 && options.exportVoices && !options.exportVoiceAsText)
+            (t === 43 && options.exportVideos) ||
+            (t === 34 && options.exportVoices)
         })
         : []
 
@@ -1935,6 +1963,7 @@ class ExportService {
             const mediaItem = await this.exportMediaForMessage(msg, sessionId, mediaRootDir, mediaRelativePrefix, {
               exportImages: options.exportImages,
               exportVoices: options.exportVoices,
+              exportVideos: options.exportVideos,
               exportEmojis: options.exportEmojis,
               exportVoiceAsText: options.exportVoiceAsText
             })
@@ -1944,10 +1973,6 @@ class ExportService {
       }
 
       // ========== 阶段2：并行语音转文字 ==========
-      const voiceMessages = options.exportVoiceAsText
-        ? collected.rows.filter(msg => msg.localType === 34)
-        : []
-
       const voiceTranscriptMap = new Map<number, string>()
 
       if (voiceMessages.length > 0) {
@@ -1988,10 +2013,10 @@ class ExportService {
         const mediaKey = `${msg.localType}_${msg.localId}`
         const mediaItem = mediaCache.get(mediaKey)
 
-        if (mediaItem) {
-          content = mediaItem.relativePath
-        } else if (msg.localType === 34 && options.exportVoiceAsText) {
+        if (msg.localType === 34 && options.exportVoiceAsText) {
           content = voiceTranscriptMap.get(msg.localId) || '[语音消息 - 转文字失败]'
+        } else if (mediaItem) {
+          content = mediaItem.relativePath
         } else {
           content = this.parseMessageContent(msg.content, msg.localType)
         }
@@ -2156,16 +2181,27 @@ class ExportService {
         phase: 'preparing'
       })
 
-      if (options.exportVoiceAsText) {
-        await this.ensureVoiceModel(onProgress)
-      }
-
       const collected = await this.collectMessages(sessionId, cleanedMyWxid, options.dateRange)
 
       // 如果没有消息,不创建文件
       if (collected.rows.length === 0) {
         return { success: false, error: '该会话在指定时间范围内没有消息' }
       }
+
+      const voiceMessages = options.exportVoiceAsText
+        ? collected.rows.filter(msg => msg.localType === 34)
+        : []
+
+      if (options.exportVoiceAsText && voiceMessages.length > 0) {
+        await this.ensureVoiceModel(onProgress)
+      }
+
+      const senderUsernames = new Set<string>()
+      for (const msg of collected.rows) {
+        if (msg.senderUsername) senderUsernames.add(msg.senderUsername)
+      }
+      senderUsernames.add(sessionId)
+      await this.preloadContacts(senderUsernames, contactCache)
 
       onProgress?.({
         current: 30,
@@ -2297,7 +2333,8 @@ class ExportService {
           const t = msg.localType
           return (t === 3 && options.exportImages) ||
             (t === 47 && options.exportEmojis) ||
-            (t === 34 && options.exportVoices && !options.exportVoiceAsText)
+            (t === 43 && options.exportVideos) ||
+            (t === 34 && options.exportVoices)
         })
         : []
 
@@ -2318,6 +2355,7 @@ class ExportService {
             const mediaItem = await this.exportMediaForMessage(msg, sessionId, mediaRootDir, mediaRelativePrefix, {
               exportImages: options.exportImages,
               exportVoices: options.exportVoices,
+              exportVideos: options.exportVideos,
               exportEmojis: options.exportEmojis,
               exportVoiceAsText: options.exportVoiceAsText
             })
@@ -2327,10 +2365,6 @@ class ExportService {
       }
 
       // ========== 并行预处理：语音转文字 ==========
-      const voiceMessages = options.exportVoiceAsText
-        ? sortedMessages.filter(msg => msg.localType === 34)
-        : []
-
       const voiceTranscriptMap = new Map<number, string>()
 
       if (voiceMessages.length > 0) {
@@ -2416,13 +2450,21 @@ class ExportService {
 
         const mediaKey = `${msg.localType}_${msg.localId}`
         const mediaItem = mediaCache.get(mediaKey)
-        const contentValue = mediaItem?.relativePath
-          || this.formatPlainExportContent(
+        const shouldUseTranscript = msg.localType === 34 && options.exportVoiceAsText
+        const contentValue = shouldUseTranscript
+          ? this.formatPlainExportContent(
             msg.content,
             msg.localType,
             options,
             voiceTranscriptMap.get(msg.localId)
           )
+          : (mediaItem?.relativePath
+            || this.formatPlainExportContent(
+            msg.content,
+            msg.localType,
+            options,
+            voiceTranscriptMap.get(msg.localId)
+          ))
 
         // 调试日志
         if (msg.localType === 3 || msg.localType === 47) {
@@ -2549,6 +2591,16 @@ class ExportService {
       const sessionInfo = await this.getContactInfo(sessionId)
       const myInfo = await this.getContactInfo(cleanedMyWxid)
 
+      const contactCache = new Map<string, { success: boolean; contact?: any; error?: string }>()
+      const getContactCached = async (username: string) => {
+        if (contactCache.has(username)) {
+          return contactCache.get(username)!
+        }
+        const result = await wcdbService.getContact(username)
+        contactCache.set(username, result)
+        return result
+      }
+
       onProgress?.({
         current: 0,
         total: 100,
@@ -2556,16 +2608,27 @@ class ExportService {
         phase: 'preparing'
       })
 
-      if (options.exportVoiceAsText) {
-        await this.ensureVoiceModel(onProgress)
-      }
-
       const collected = await this.collectMessages(sessionId, cleanedMyWxid, options.dateRange)
 
       // 如果没有消息,不创建文件
       if (collected.rows.length === 0) {
         return { success: false, error: '该会话在指定时间范围内没有消息' }
       }
+
+      const voiceMessages = options.exportVoiceAsText
+        ? collected.rows.filter(msg => msg.localType === 34)
+        : []
+
+      if (options.exportVoiceAsText && voiceMessages.length > 0) {
+        await this.ensureVoiceModel(onProgress)
+      }
+
+      const senderUsernames = new Set<string>()
+      for (const msg of collected.rows) {
+        if (msg.senderUsername) senderUsernames.add(msg.senderUsername)
+      }
+      senderUsernames.add(sessionId)
+      await this.preloadContacts(senderUsernames, contactCache)
 
       const sortedMessages = collected.rows.sort((a, b) => a.createTime - b.createTime)
 
@@ -2575,7 +2638,8 @@ class ExportService {
           const t = msg.localType
           return (t === 3 && options.exportImages) ||
             (t === 47 && options.exportEmojis) ||
-            (t === 34 && options.exportVoices && !options.exportVoiceAsText)
+            (t === 43 && options.exportVideos) ||
+            (t === 34 && options.exportVoices)
         })
         : []
 
@@ -2596,6 +2660,7 @@ class ExportService {
             const mediaItem = await this.exportMediaForMessage(msg, sessionId, mediaRootDir, mediaRelativePrefix, {
               exportImages: options.exportImages,
               exportVoices: options.exportVoices,
+              exportVideos: options.exportVideos,
               exportEmojis: options.exportEmojis,
               exportVoiceAsText: options.exportVoiceAsText
             })
@@ -2604,9 +2669,6 @@ class ExportService {
         })
       }
 
-      const voiceMessages = options.exportVoiceAsText
-        ? sortedMessages.filter(msg => msg.localType === 34)
-        : []
       const voiceTranscriptMap = new Map<number, string>()
 
       if (voiceMessages.length > 0) {
@@ -2637,13 +2699,21 @@ class ExportService {
         const msg = sortedMessages[i]
         const mediaKey = `${msg.localType}_${msg.localId}`
         const mediaItem = mediaCache.get(mediaKey)
-        const contentValue = mediaItem?.relativePath
-          || this.formatPlainExportContent(
+        const shouldUseTranscript = msg.localType === 34 && options.exportVoiceAsText
+        const contentValue = shouldUseTranscript
+          ? this.formatPlainExportContent(
             msg.content,
             msg.localType,
             options,
             voiceTranscriptMap.get(msg.localId)
           )
+          : (mediaItem?.relativePath
+            || this.formatPlainExportContent(
+            msg.content,
+            msg.localType,
+            options,
+            voiceTranscriptMap.get(msg.localId)
+          ))
 
         let senderRole: string
         let senderWxid: string
@@ -2763,7 +2833,7 @@ class ExportService {
           return (t === 3 && options.exportImages) ||
             (t === 47 && options.exportEmojis) ||
             (t === 34 && options.exportVoices) ||
-            t === 43
+            (t === 43 && options.exportVideos)
         })
         : []
 
@@ -2787,7 +2857,7 @@ class ExportService {
               exportEmojis: options.exportEmojis,
               exportVoiceAsText: options.exportVoiceAsText,
               includeVoiceWithTranscript: true,
-              exportVideos: true
+              exportVideos: options.exportVideos
             })
             mediaCache.set(mediaKey, mediaItem)
           }
@@ -3094,7 +3164,7 @@ class ExportService {
       }
 
       const exportMediaEnabled = options.exportMedia === true &&
-        Boolean(options.exportImages || options.exportVoices || options.exportEmojis)
+        Boolean(options.exportImages || options.exportVoices || options.exportVideos || options.exportEmojis)
       const sessionLayout = exportMediaEnabled
         ? (options.sessionLayout ?? 'per-session')
         : 'shared'

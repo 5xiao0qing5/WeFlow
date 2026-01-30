@@ -62,9 +62,11 @@ function SettingsPage() {
   const [showExportFormatSelect, setShowExportFormatSelect] = useState(false)
   const [showExportDateRangeSelect, setShowExportDateRangeSelect] = useState(false)
   const [showExportExcelColumnsSelect, setShowExportExcelColumnsSelect] = useState(false)
+  const [showExportConcurrencySelect, setShowExportConcurrencySelect] = useState(false)
   const exportFormatDropdownRef = useRef<HTMLDivElement>(null)
   const exportDateRangeDropdownRef = useRef<HTMLDivElement>(null)
   const exportExcelColumnsDropdownRef = useRef<HTMLDivElement>(null)
+  const exportConcurrencyDropdownRef = useRef<HTMLDivElement>(null)
   const [cachePath, setCachePath] = useState('')
   const [logEnabled, setLogEnabled] = useState(false)
   const [whisperModelName, setWhisperModelName] = useState('base')
@@ -144,10 +146,13 @@ function SettingsPage() {
       if (showExportExcelColumnsSelect && exportExcelColumnsDropdownRef.current && !exportExcelColumnsDropdownRef.current.contains(target)) {
         setShowExportExcelColumnsSelect(false)
       }
+      if (showExportConcurrencySelect && exportConcurrencyDropdownRef.current && !exportConcurrencyDropdownRef.current.contains(target)) {
+        setShowExportConcurrencySelect(false)
+      }
     }
     document.addEventListener('mousedown', handleClickOutside)
     return () => document.removeEventListener('mousedown', handleClickOutside)
-  }, [showExportFormatSelect, showExportDateRangeSelect, showExportExcelColumnsSelect])
+  }, [showExportFormatSelect, showExportDateRangeSelect, showExportExcelColumnsSelect, showExportConcurrencySelect])
 
   useEffect(() => {
     const removeDb = window.electronAPI.key.onDbKeyStatus((payload) => {
@@ -1110,6 +1115,15 @@ function SettingsPage() {
     { value: 'full', label: '完整列', desc: '含发送者昵称/微信ID/备注' }
   ]
 
+  const exportConcurrencyOptions = [
+    { value: 1, label: '1' },
+    { value: 2, label: '2' },
+    { value: 3, label: '3' },
+    { value: 4, label: '4' },
+    { value: 5, label: '5' },
+    { value: 6, label: '6' }
+  ]
+
   const getOptionLabel = (options: { value: string; label: string }[], value: string) => {
     return options.find((option) => option.value === value)?.label ?? value
   }
@@ -1119,6 +1133,7 @@ function SettingsPage() {
     const exportFormatLabel = getOptionLabel(exportFormatOptions, exportDefaultFormat)
     const exportDateRangeLabel = getOptionLabel(exportDateRangeOptions, exportDefaultDateRange)
     const exportExcelColumnsLabel = getOptionLabel(exportExcelColumnOptions, exportExcelColumnsValue)
+    const exportConcurrencyLabel = String(exportDefaultConcurrency)
 
     return (
       <div className="tab-content">
@@ -1133,6 +1148,7 @@ function SettingsPage() {
                 setShowExportFormatSelect(!showExportFormatSelect)
                 setShowExportDateRangeSelect(false)
                 setShowExportExcelColumnsSelect(false)
+                setShowExportConcurrencySelect(false)
               }}
             >
               <span className="select-value">{exportFormatLabel}</span>
@@ -1172,6 +1188,7 @@ function SettingsPage() {
                 setShowExportDateRangeSelect(!showExportDateRangeSelect)
                 setShowExportFormatSelect(false)
                 setShowExportExcelColumnsSelect(false)
+                setShowExportConcurrencySelect(false)
               }}
             >
               <span className="select-value">{exportDateRangeLabel}</span>
@@ -1256,6 +1273,7 @@ function SettingsPage() {
                 setShowExportExcelColumnsSelect(!showExportExcelColumnsSelect)
                 setShowExportFormatSelect(false)
                 setShowExportDateRangeSelect(false)
+                setShowExportConcurrencySelect(false)
               }}
             >
               <span className="select-value">{exportExcelColumnsLabel}</span>
@@ -1278,6 +1296,45 @@ function SettingsPage() {
                   >
                     <span className="option-label">{option.label}</span>
                     {option.desc && <span className="option-desc">{option.desc}</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="form-group">
+          <label>导出并发数</label>
+          <span className="form-hint">导出多个会话时的最大并发（1~6）</span>
+          <div className="select-field" ref={exportConcurrencyDropdownRef}>
+            <button
+              type="button"
+              className={`select-trigger ${showExportConcurrencySelect ? 'open' : ''}`}
+              onClick={() => {
+                setShowExportConcurrencySelect(!showExportConcurrencySelect)
+                setShowExportFormatSelect(false)
+                setShowExportDateRangeSelect(false)
+                setShowExportExcelColumnsSelect(false)
+              }}
+            >
+              <span className="select-value">{exportConcurrencyLabel}</span>
+              <ChevronDown size={16} />
+            </button>
+            {showExportConcurrencySelect && (
+              <div className="select-dropdown">
+                {exportConcurrencyOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`select-option ${exportDefaultConcurrency === option.value ? 'active' : ''}`}
+                    onClick={async () => {
+                      setExportDefaultConcurrency(option.value)
+                      await configService.setExportDefaultConcurrency(option.value)
+                      showMessage(`已将导出并发数设为 ${option.value}`, true)
+                      setShowExportConcurrencySelect(false)
+                    }}
+                  >
+                    <span className="option-label">{option.label}</span>
                   </button>
                 ))}
               </div>
