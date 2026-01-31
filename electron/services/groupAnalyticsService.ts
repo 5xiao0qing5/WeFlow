@@ -1,5 +1,6 @@
 import * as fs from 'fs'
-import * as fs from 'fs'
+import * as path from 'path'
+import ExcelJS from 'exceljs'
 import { ConfigService } from './config'
 import { wcdbService } from './wcdbService'
 
@@ -199,6 +200,31 @@ class GroupAnalyticsService {
     return str
   }
 
+  private normalizeGroupNickname(value: string, wxid: string, fallback: string): string {
+    const trimmed = (value || '').trim()
+    if (!trimmed) return fallback
+    if (/^["'@]+$/.test(trimmed)) return fallback
+    if (trimmed.toLowerCase() === (wxid || '').toLowerCase()) return fallback
+    return trimmed
+  }
+
+  private sanitizeWorksheetName(name: string): string {
+    const cleaned = (name || '').replace(/[*?:\\/\\[\\]]/g, '_').trim()
+    const limited = cleaned.slice(0, 31)
+    return limited || 'Sheet1'
+  }
+
+  private formatDateTime(date: Date): string {
+    const pad = (value: number) => String(value).padStart(2, '0')
+    const year = date.getFullYear()
+    const month = pad(date.getMonth() + 1)
+    const day = pad(date.getDate())
+    const hour = pad(date.getHours())
+    const minute = pad(date.getMinutes())
+    const second = pad(date.getSeconds())
+    return `${year}-${month}-${day} ${hour}:${minute}:${second}`
+  }
+
   async getGroupChats(): Promise<{ success: boolean; data?: GroupChatInfo[]; error?: string }> {
     try {
       const conn = await this.ensureConnected()
@@ -388,6 +414,22 @@ class GroupAnalyticsService {
       const conn = await this.ensureConnected()
       if (!conn.success) return { success: false, error: conn.error }
 
+      const exportDate = new Date()
+      const exportTime = this.formatDateTime(exportDate)
+      const exportVersion = '0.0.2'
+      const exportGenerator = 'WeFlow'
+      const exportPlatform = 'wechat'
+
+      const groupDisplay = await wcdbService.getDisplayNames([chatroomId])
+      const groupName = groupDisplay.success && groupDisplay.map
+        ? (groupDisplay.map[chatroomId] || chatroomId)
+        : chatroomId
+
+      const groupContact = await wcdbService.getContact(chatroomId)
+      const sessionRemark = (groupContact.success && groupContact.contact)
+        ? (groupContact.contact.remark || '')
+        : ''
+
       const membersResult = await wcdbService.getGroupMembers(chatroomId)
       if (!membersResult.success || !membersResult.members) {
         return { success: false, error: membersResult.error || '获取群成员失败' }
@@ -420,30 +462,133 @@ class GroupAnalyticsService {
         }
       })
 
+      const infoTitleRow = ['会话信息']
+      const infoRow = ['微信ID', chatroomId, '', '昵称', groupName, '备注', sessionRemark || '', '']
+      const metaRow = ['导出工具', exportGenerator, '导出版本', exportVersion, '平台', exportPlatform, '导出时间', exportTime]
+
       const header = ['微信昵称', '微信备注', '群昵称', 'wxid', '微信号']
-      const rows: string[][] = [header]
+      const rows: string[][] = [infoTitleRow, infoRow, metaRow, header]
+      const myWxid = this.cleanAccountDirName(this.configService.get('myWxid') || '')
 
       for (const member of members) {
         const wxid = member.username
+        const normalizedWxid = this.cleanAccountDirName(wxid || '')
         const contact = contactMap.get(wxid)
         const fallbackName = displayNames.success && displayNames.map ? (displayNames.map[wxid] || '') : ''
         const nickName = contact?.nickName || fallbackName || ''
         const remark = contact?.remark || ''
-        const groupNickname = groupNicknames.get(wxid.toLowerCase()) || ''
+        const rawGroupNickname = groupNicknames.get(wxid.toLowerCase()) || ''
         const alias = contact?.alias || ''
+        const groupNickname = this.normalizeGroupNickname(
+          rawGroupNickname,
+          normalizedWxid === myWxid ? myWxid : wxid,
+          ''
+        )
 
         rows.push([nickName, remark, groupNickname, wxid, alias])
       }
 
-      const csvLines = rows.map((row) => row.map((cell) => this.escapeCsvValue(cell)).join(','))
-      const content = '\ufeff' + csvLines.join('\n')
-      fs.writeFileSync(outputPath, content, 'utf8')
+      const ext = path.extname(outputPath).toLowerCase()
+      if (ext === '.csv') {
+        const csvLines = rows.map((row) => row.map((cell) => this.escapeCsvValue(cell)).join(','))
+        const content = '\ufeff' + csvLines.join('\n')
+        fs.writeFileSync(outputPath, content, 'utf8')
+      } else {
+        const workbook = new ExcelJS.Workbook()
+        const sheet = workbook.addWorksheet(this.sanitizeWorksheetName('群成员列表'))
+
+        let currentRow = 1
+        const titleCell = sheet.getCell(currentRow, 1)
+        titleCell.value = '会话信息'
+        titleCell.font = { name: 'Calibri', bold: true, size: 11 }
+        titleCell.alignment = { vertical: 'middle', horizontal: 'left' }
+        sheet.getRow(currentRow).height = 25
+        currentRow++
+
+        sheet.getCell(currentRow, 1).value = '微信ID'
+        sheet.getCell(currentRow, 1).font = { name: 'Calibri', bold: true, size: 11 }
+        sheet.mergeCells(currentRow, 2, currentRow, 3)
+        sheet.getCell(currentRow, 2).value = chatroomId
+        sheet.getCell(currentRow, 2).font = { name: 'Calibri', size: 11 }
+
+        sheet.getCell(currentRow, 4).value = '昵称'
+        sheet.getCell(currentRow, 4).font = { name: 'Calibri', bold: true, size: 11 }
+        sheet.getCell(currentRow, 5).value = groupName
+        sheet.getCell(currentRow, 5).font = { name: 'Calibri', size: 11 }
+
+        sheet.getCell(currentRow, 6).value = '备注'
+        sheet.getCell(currentRow, 6).font = { name: 'Calibri', bold: true, size: 11 }
+        sheet.mergeCells(currentRow, 7, currentRow, 8)
+        sheet.getCell(currentRow, 7).value = sessionRemark
+        sheet.getCell(currentRow, 7).font = { name: 'Calibri', size: 11 }
+
+        sheet.getRow(currentRow).height = 20
+        currentRow++
+
+        sheet.getCell(currentRow, 1).value = '导出工具'
+        sheet.getCell(currentRow, 1).font = { name: 'Calibri', bold: true, size: 11 }
+        sheet.getCell(currentRow, 2).value = exportGenerator
+        sheet.getCell(currentRow, 2).font = { name: 'Calibri', size: 10 }
+
+        sheet.getCell(currentRow, 3).value = '导出版本'
+        sheet.getCell(currentRow, 3).font = { name: 'Calibri', bold: true, size: 11 }
+        sheet.getCell(currentRow, 4).value = exportVersion
+        sheet.getCell(currentRow, 4).font = { name: 'Calibri', size: 10 }
+
+        sheet.getCell(currentRow, 5).value = '平台'
+        sheet.getCell(currentRow, 5).font = { name: 'Calibri', bold: true, size: 11 }
+        sheet.getCell(currentRow, 6).value = exportPlatform
+        sheet.getCell(currentRow, 6).font = { name: 'Calibri', size: 10 }
+
+        sheet.getCell(currentRow, 7).value = '导出时间'
+        sheet.getCell(currentRow, 7).font = { name: 'Calibri', bold: true, size: 11 }
+        sheet.getCell(currentRow, 8).value = exportTime
+        sheet.getCell(currentRow, 8).font = { name: 'Calibri', size: 10 }
+
+        sheet.getRow(currentRow).height = 20
+        currentRow++
+
+        const headerRow = sheet.getRow(currentRow)
+        headerRow.height = 22
+        header.forEach((text, index) => {
+          const cell = headerRow.getCell(index + 1)
+          cell.value = text
+          cell.font = { name: 'Calibri', bold: true, size: 11 }
+        })
+        currentRow++
+
+        sheet.getColumn(1).width = 28
+        sheet.getColumn(2).width = 28
+        sheet.getColumn(3).width = 28
+        sheet.getColumn(4).width = 36
+        sheet.getColumn(5).width = 28
+        sheet.getColumn(6).width = 18
+        sheet.getColumn(7).width = 24
+        sheet.getColumn(8).width = 22
+
+        for (let i = 4; i < rows.length; i++) {
+          const [nickName, remark, groupNickname, wxid, alias] = rows[i]
+          const row = sheet.getRow(currentRow)
+          row.getCell(1).value = nickName
+          row.getCell(2).value = remark
+          row.getCell(3).value = groupNickname
+          row.getCell(4).value = wxid
+          row.getCell(5).value = alias
+          row.alignment = { vertical: 'top', wrapText: true }
+          currentRow++
+        }
+
+        await workbook.xlsx.writeFile(outputPath)
+      }
 
       return { success: true, count: members.length }
     } catch (e) {
       return { success: false, error: String(e) }
     }
   }
+
+
+
 }
 
 export const groupAnalyticsService = new GroupAnalyticsService()

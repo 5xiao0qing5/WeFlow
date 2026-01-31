@@ -264,11 +264,11 @@ function GroupAnalyticsPage() {
       const downloadsPath = await window.electronAPI.app.getDownloadsPath()
       const baseName = sanitizeFileName(`${selectedGroup.displayName || selectedGroup.username}_群成员列表`)
       const separator = downloadsPath && downloadsPath.includes('\\') ? '\\' : '/'
-      const defaultPath = downloadsPath ? `${downloadsPath}${separator}${baseName}.csv` : `${baseName}.csv`
+      const defaultPath = downloadsPath ? `${downloadsPath}${separator}${baseName}.xlsx` : `${baseName}.xlsx`
       const saveResult = await window.electronAPI.dialog.saveFile({
         title: '导出群成员列表',
         defaultPath,
-        filters: [{ name: 'CSV', extensions: ['csv'] }]
+        filters: [{ name: 'Excel', extensions: ['xlsx'] }]
       })
       if (!saveResult || saveResult.canceled || !saveResult.filePath) return
 
