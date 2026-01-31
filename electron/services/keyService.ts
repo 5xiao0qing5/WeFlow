@@ -43,6 +43,7 @@ export class KeyService {
   private GetWindowThreadProcessId: any = null
   private IsWindowVisible: any = null
   private EnumChildWindows: any = null
+  private PostMessageW: any = null
   private WNDENUMPROC_PTR: any = null
 
   // Advapi32
@@ -57,6 +58,7 @@ export class KeyService {
   private readonly HKEY_LOCAL_MACHINE = 0x80000002
   private readonly HKEY_CURRENT_USER = 0x80000001
   private readonly ERROR_SUCCESS = 0
+  private readonly WM_CLOSE = 0x0010
 
   private getDllPath(): string {
     const isPackaged = typeof app !== 'undefined' && app ? app.isPackaged : process.env.NODE_ENV === 'production'
@@ -224,6 +226,7 @@ export class KeyService {
 
       this.EnumWindows = this.user32.func('EnumWindows', 'bool', [this.WNDENUMPROC_PTR, 'intptr_t'])
       this.EnumChildWindows = this.user32.func('EnumChildWindows', 'bool', ['void*', this.WNDENUMPROC_PTR, 'intptr_t'])
+      this.PostMessageW = this.user32.func('PostMessageW', 'bool', ['void*', 'uint32', 'uintptr_t', 'intptr_t'])
 
       this.GetWindowTextW = this.user32.func('GetWindowTextW', 'int', ['void*', this.koffi.out('uint16*'), 'int'])
       this.GetWindowTextLengthW = this.user32.func('GetWindowTextLengthW', 'int', ['void*'])
@@ -437,14 +440,55 @@ export class KeyService {
     return fallbackPid ?? null
   }
 
-  private async killWeChatProcesses() {
+  private async waitForWeChatExit(timeoutMs = 8000): Promise<boolean> {
+    const start = Date.now()
+    while (Date.now() - start < timeoutMs) {
+      const weixinPid = await this.findPidByImageName('Weixin.exe')
+      const wechatPid = await this.findPidByImageName('WeChat.exe')
+      if (!weixinPid && !wechatPid) return true
+      await new Promise(r => setTimeout(r, 400))
+    }
+    return false
+  }
+
+  private async closeWeChatWindows(timeoutMs = 8000): Promise<boolean> {
+    if (!this.ensureUser32()) return false
+    let requested = false
+
+    const enumWindowsCallback = this.koffi.register((hWnd: any, lParam: any) => {
+      if (!this.IsWindowVisible(hWnd)) return true
+      const title = this.getWindowTitle(hWnd)
+      const className = this.getClassName(hWnd)
+      const classLower = (className || '').toLowerCase()
+      const isWeChatWindow = this.isWeChatWindowTitle(title) || classLower.includes('wechat') || classLower.includes('weixin')
+      if (!isWeChatWindow) return true
+
+      requested = true
+      try {
+        this.PostMessageW?.(hWnd, this.WM_CLOSE, 0, 0)
+      } catch { }
+      return true
+    }, this.WNDENUMPROC_PTR)
+
+    this.EnumWindows(enumWindowsCallback, 0)
+    this.koffi.unregister(enumWindowsCallback)
+
+    if (!requested) return true
+    return await this.waitForWeChatExit(timeoutMs)
+  }
+
+  private async killWeChatProcesses(): Promise<boolean> {
+    const gracefulOk = await this.closeWeChatWindows(8000)
+    if (gracefulOk) return true
+
     try {
-      await execFileAsync('taskkill', ['/F', '/IM', 'Weixin.exe'])
-      await execFileAsync('taskkill', ['/F', '/IM', 'WeChat.exe'])
+      await execFileAsync('taskkill', ['/F', '/T', '/IM', 'Weixin.exe'])
+      await execFileAsync('taskkill', ['/F', '/T', '/IM', 'WeChat.exe'])
     } catch (e) {
       // Ignore if not found
     }
-    await new Promise(r => setTimeout(r, 1000))
+
+    return await this.waitForWeChatExit(5000)
   }
 
   // --- Window Detection ---
@@ -605,15 +649,24 @@ export class KeyService {
     }
 
     // 2. Restart WeChat
-    onStatus?.('正在重启微信以进行获取...', 0)
-    await this.killWeChatProcesses()
+    onStatus?.('正在关闭微信以进行获取...', 0)
+    const closed = await this.killWeChatProcesses()
+    if (!closed) {
+      const err = '无法自动关闭微信，请手动退出后重试'
+      onStatus?.(err, 2)
+      return { success: false, error: err }
+    }
 
-    // 3. Launch
+// 3. Launch
     onStatus?.('正在启动微信...', 0)
-    const sub = spawn(wechatPath, { detached: true, stdio: 'ignore' })
+    const sub = spawn(wechatPath, {
+      detached: true,
+      stdio: 'ignore',
+      cwd: dirname(wechatPath)
+    })
     sub.unref()
 
-    // 4. Wait for Window & Get PID (Crucial change: discover PID from window)
+// 4. Wait for Window & Get PID (Crucial change: discover PID from window)
     onStatus?.('等待微信界面就绪...', 0)
     const pid = await this.waitForWeChatWindow()
     if (!pid) {
