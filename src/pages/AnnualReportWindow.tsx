@@ -355,7 +355,7 @@ function AnnualReportWindow() {
   }
 
   const formatYearLabel = (value: number, withSuffix: boolean = true) => {
-    if (value === 0) return '全部时间'
+    if (value === 0) return '历史以来'
     return withSuffix ? `${value}年` : `${value}`
   }
 
@@ -769,8 +769,8 @@ function AnnualReportWindow() {
   const socialStoryName = topFriend?.displayName || '好友'
   const yearTitle = formatYearLabel(year, true)
   const yearTitleShort = formatYearLabel(year, false)
-  const monthlyTitle = year === 0 ? '全部时间月度好友' : `${year}年月度好友`
-  const phrasesTitle = year === 0 ? '你在全部时间的常用语' : `你在${year}年的年度常用语`
+  const monthlyTitle = year === 0 ? '历史以来月度好友' : `${year}年月度好友`
+  const phrasesTitle = year === 0 ? '你在历史以来的常用语' : `你在${year}年的年度常用语`
 
   return (
     <div className="annual-report-window">

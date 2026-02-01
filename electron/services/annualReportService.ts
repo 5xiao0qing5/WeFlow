@@ -960,7 +960,7 @@ class AnnualReportService {
 
       // 曾经的好朋友 (Once Best Friend / Lost Friend)
       let lostFriend: AnnualReportData['lostFriend'] = null
-      let maxRatio = 5
+      let maxEarlyCount = 80  // 最低门槛
       let bestEarlyCount = 0
       let bestLateCount = 0
       let bestSid = ''
@@ -991,13 +991,13 @@ class AnnualReportService {
               const early = (e.sent || 0) + (e.received || 0)
               const late = (l.sent || 0) + (l.received || 0)
               if (early > 100 && early > late * 5) {
-                const ratio = early / (late || 1)
-                if (ratio > maxRatio) {
-                  maxRatio = ratio
+                // 选择前期消息量最多的
+                if (early > maxEarlyCount) {
+                  maxEarlyCount = early
                   bestEarlyCount = early
                   bestLateCount = late
                   bestSid = sid
-                  bestPeriodDesc = '账号历史早期'
+                  bestPeriodDesc = '这段时间以来'
                 }
               }
             }
@@ -1023,9 +1023,9 @@ class AnnualReportService {
             const early = (e.sent || 0) + (e.received || 0)
             const late = (l.sent || 0) + (l.received || 0)
             if (early > 80 && early > late * 5) {
-              const ratio = early / (late || 1)
-              if (ratio > maxRatio) {
-                maxRatio = ratio
+              // 选择前期消息量最多的
+              if (early > maxEarlyCount) {
+                maxEarlyCount = early
                 bestEarlyCount = early
                 bestLateCount = late
                 bestSid = sid
@@ -1045,9 +1045,9 @@ class AnnualReportService {
           for (let m = 7; m <= 12; m++) late += mWeights[m] || 0
 
           if (early > 80 && early > late * 5) {
-            const ratio = early / (late || 1)
-            if (ratio > maxRatio) {
-              maxRatio = ratio
+            // 选择前期消息量最多的
+            if (early > maxEarlyCount) {
+              maxEarlyCount = early
               bestEarlyCount = early
               bestLateCount = late
               bestSid = sid
