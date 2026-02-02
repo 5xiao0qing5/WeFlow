@@ -43,6 +43,7 @@ interface ChatLabMessage {
   timestamp: number
   type: number
   content: string | null
+  chatRecords?: any[]  // 嵌套的聊天记录
 }
 
 interface ChatLabExport {
@@ -228,20 +229,27 @@ class ExportService {
    * 转换微信消息类型到 ChatLab 类型
    */
   private convertMessageType(localType: number, content: string): number {
-    if (localType === 49) {
-      const typeMatch = /<type>(\d+)<\/type>/i.exec(content)
-      if (typeMatch) {
-        const subType = parseInt(typeMatch[1])
-        switch (subType) {
-          case 6: return 4   // 文件 -> FILE
-          case 33:
-          case 36: return 24 // 小程序 -> SHARE
-          case 57: return 25 // 引用回复 -> REPLY
-          default: return 7  // 链接 -> LINK
-        }
+    // 检查 XML 中的 type 标签（支持大 localType 的情况）
+    const xmlTypeMatch = /<type>(\d+)<\/type>/i.exec(content)
+    const xmlType = xmlTypeMatch ? parseInt(xmlTypeMatch[1]) : null
+    
+    // 特殊处理 type 49 或 XML type
+    if (localType === 49 || xmlType) {
+      const subType = xmlType || 0
+      switch (subType) {
+        case 6: return 4   // 文件 -> FILE
+        case 19: return 7  // 聊天记录 -> LINK (ChatLab 没有专门的聊天记录类型)
+        case 33:
+        case 36: return 24 // 小程序 -> SHARE
+        case 57: return 25 // 引用回复 -> REPLY
+        case 2000: return 99 // 转账 -> OTHER (ChatLab 没有转账类型)
+        case 5:
+        case 49: return 7  // 链接 -> LINK
+        default: 
+          if (xmlType) return 7 // 有 XML type 但未知，默认为链接
       }
     }
-    return MESSAGE_TYPE_MAP[localType] ?? 99
+    return MESSAGE_TYPE_MAP[localType] ?? 99 // 未知类型 -> OTHER
   }
 
   /**
@@ -346,30 +354,87 @@ class ExportService {
    * 解析消息内容为可读文本
    * 注意：语音消息在这里返回占位符，实际转文字在导出时异步处理
    */
-  private parseMessageContent(content: string, localType: number): string | null {
+  private parseMessageContent(content: string, localType: number, sessionId?: string, createTime?: number): string | null {
     if (!content) return null
 
+    // 检查 XML 中的 type 标签（支持大 localType 的情况）
+    const xmlTypeMatch = /<type>(\d+)<\/type>/i.exec(content)
+    const xmlType = xmlTypeMatch ? xmlTypeMatch[1] : null
+
     switch (localType) {
-      case 1:
+      case 1: // 文本
         return this.stripSenderPrefix(content)
       case 3: return '[图片]'
-      case 34: return '[语音消息]'  // 占位符，导出时会替换为转文字结果
+      case 34: {
+        // 语音消息 - 尝试获取转写文字
+        if (sessionId && createTime) {
+          const transcript = voiceTranscribeService.getCachedTranscript(sessionId, createTime)
+          if (transcript) {
+            return `[语音消息] ${transcript}`
+          }
+        }
+        return '[语音消息]'  // 占位符，导出时会替换为转文字结果
+      }
       case 42: return '[名片]'
       case 43: return '[视频]'
       case 47: return '[动画表情]'
       case 48: return '[位置]'
       case 49: {
         const title = this.extractXmlValue(content, 'title')
-        return title || '[链接]'
+        const type = this.extractXmlValue(content, 'type')
+        
+        // 转账消息特殊处理
+        if (type === '2000') {
+          const feedesc = this.extractXmlValue(content, 'feedesc')
+          const payMemo = this.extractXmlValue(content, 'pay_memo')
+          if (feedesc) {
+            return payMemo ? `[转账] ${feedesc} ${payMemo}` : `[转账] ${feedesc}`
+          }
+          return '[转账]'
+        }
+        
+        if (type === '6') return title ? `[文件] ${title}` : '[文件]'
+        if (type === '19') return title ? `[聊天记录] ${title}` : '[聊天记录]'
+        if (type === '33' || type === '36') return title ? `[小程序] ${title}` : '[小程序]'
+        if (type === '57') return title || '[引用消息]'
+        if (type === '5' || type === '49') return title ? `[链接] ${title}` : '[链接]'
+        return title ? `[链接] ${title}` : '[链接]'
       }
       case 50: return this.parseVoipMessage(content)
       case 10000: return this.cleanSystemMessage(content)
       case 266287972401: return this.cleanSystemMessage(content)  // 拍一拍
+      case 244813135921: {
+        // 引用消息
+        const title = this.extractXmlValue(content, 'title')
+        return title || '[引用消息]'
+      }
       default:
-        if (content.includes('<type>57</type>')) {
+        // 对于未知的 localType，检查 XML type 来判断消息类型
+        if (xmlType) {
           const title = this.extractXmlValue(content, 'title')
-          return title || '[引用消息]'
+          
+          // 转账消息
+          if (xmlType === '2000') {
+            const feedesc = this.extractXmlValue(content, 'feedesc')
+            const payMemo = this.extractXmlValue(content, 'pay_memo')
+            if (feedesc) {
+              return payMemo ? `[转账] ${feedesc} ${payMemo}` : `[转账] ${feedesc}`
+            }
+            return '[转账]'
+          }
+          
+          // 其他类型
+          if (xmlType === '6') return title ? `[文件] ${title}` : '[文件]'
+          if (xmlType === '19') return title ? `[聊天记录] ${title}` : '[聊天记录]'
+          if (xmlType === '33' || xmlType === '36') return title ? `[小程序] ${title}` : '[小程序]'
+          if (xmlType === '57') return title || '[引用消息]'
+          if (xmlType === '5' || xmlType === '49') return title ? `[链接] ${title}` : '[链接]'
+          
+          // 有 title 就返回 title
+          if (title) return title
         }
+        
+        // 最后尝试提取文本内容
         return this.stripSenderPrefix(content) || null
     }
   }
@@ -430,15 +495,14 @@ class ExportService {
       const typeMatch = /<type>(\d+)<\/type>/i.exec(normalized)
       const subType = typeMatch ? parseInt(typeMatch[1], 10) : 0
       const title = this.extractXmlValue(normalized, 'title') || this.extractXmlValue(normalized, 'appname')
-      if (subType === 3 || normalized.includes('<musicurl') || normalized.includes('<songname')) {
-        const songName = this.extractXmlValue(normalized, 'songname') || title || '音乐'
-        return `[音乐]${songName}`
-      }
-      if (subType === 6) {
-        const fileName = this.extractXmlValue(normalized, 'filename') || title || '文件'
-        return `[文件]${fileName}`
-      }
-      if (title.includes('转账') || normalized.includes('transfer')) {
+      
+      // 转账消息特殊处理
+      if (subType === 2000 || title.includes('转账') || normalized.includes('transfer')) {
+        const feedesc = this.extractXmlValue(normalized, 'feedesc')
+        const payMemo = this.extractXmlValue(normalized, 'pay_memo')
+        if (feedesc) {
+          return payMemo ? `[转账]${feedesc} ${payMemo}` : `[转账]${feedesc}`
+        }
         const amount = this.extractAmountFromText(
           [
             title,
@@ -451,6 +515,15 @@ class ExportService {
             .join(' ')
         )
         return amount ? `[转账]${amount}` : '[转账]'
+      }
+      
+      if (subType === 3 || normalized.includes('<musicurl') || normalized.includes('<songname')) {
+        const songName = this.extractXmlValue(normalized, 'songname') || title || '音乐'
+        return `[音乐]${songName}`
+      }
+      if (subType === 6) {
+        const fileName = this.extractXmlValue(normalized, 'filename') || title || '文件'
+        return `[文件]${fileName}`
       }
       if (title.includes('红包') || normalized.includes('hongbao')) {
         return `[红包]${title || '微信红包'}`
@@ -466,6 +539,9 @@ class ExportService {
       if (subType === 33 || subType === 36) {
         const appName = this.extractXmlValue(normalized, 'appname') || title || '小程序'
         return `[小程序]${appName}`
+      }
+      if (subType === 57) {
+        return title || '[引用消息]'
       }
       if (title) {
         return `[链接]${title}`
@@ -602,7 +678,25 @@ class ExportService {
   /**
    * 获取消息类型名称
    */
-  private getMessageTypeName(localType: number): string {
+  private getMessageTypeName(localType: number, content?: string): string {
+    // 检查 XML 中的 type 标签（支持大 localType 的情况）
+    if (content) {
+      const xmlTypeMatch = /<type>(\d+)<\/type>/i.exec(content)
+      const xmlType = xmlTypeMatch ? xmlTypeMatch[1] : null
+      
+      if (xmlType) {
+        switch (xmlType) {
+          case '2000': return '转账消息'
+          case '5': return '链接消息'
+          case '6': return '文件消息'
+          case '19': return '聊天记录'
+          case '33':
+          case '36': return '小程序消息'
+          case '57': return '引用消息'
+        }
+      }
+    }
+
     const typeNames: Record<number, string> = {
       1: '文本消息',
       3: '图片消息',
@@ -613,7 +707,8 @@ class ExportService {
       48: '位置消息',
       49: '链接消息',
       50: '通话消息',
-      10000: '系统消息'
+      10000: '系统消息',
+      244813135921: '引用消息'
     }
     return typeNames[localType] || '其他消息'
   }
@@ -688,6 +783,71 @@ class ExportService {
     }
     this.htmlStyleCache = EXPORT_HTML_STYLES
     return this.htmlStyleCache
+  }
+
+  /**
+   * 解析合并转发的聊天记录 (Type 19)
+   */
+  private parseChatHistory(content: string): any[] | undefined {
+    try {
+      const type = this.extractXmlValue(content, 'type')
+      if (type !== '19') return undefined
+
+      // 提取 recorditem 中的 CDATA
+      const match = /<recorditem>[\s\S]*?<!\[CDATA\[([\s\S]*?)\]\]>[\s\S]*?<\/recorditem>/.exec(content)
+      if (!match) return undefined
+
+      const innerXml = match[1]
+      const items: any[] = []
+      const itemRegex = /<dataitem\s+(.*?)>([\s\S]*?)<\/dataitem>/g
+      let itemMatch
+
+      while ((itemMatch = itemRegex.exec(innerXml)) !== null) {
+        const attrs = itemMatch[1]
+        const body = itemMatch[2]
+
+        const datatypeMatch = /datatype="(\d+)"/.exec(attrs)
+        const datatype = datatypeMatch ? parseInt(datatypeMatch[1]) : 0
+
+        const sourcename = this.extractXmlValue(body, 'sourcename')
+        const sourcetime = this.extractXmlValue(body, 'sourcetime')
+        const sourceheadurl = this.extractXmlValue(body, 'sourceheadurl')
+        const datadesc = this.extractXmlValue(body, 'datadesc')
+        const datatitle = this.extractXmlValue(body, 'datatitle')
+        const fileext = this.extractXmlValue(body, 'fileext')
+        const datasize = parseInt(this.extractXmlValue(body, 'datasize') || '0')
+
+        items.push({
+          datatype,
+          sourcename,
+          sourcetime,
+          sourceheadurl,
+          datadesc: this.decodeHtmlEntities(datadesc),
+          datatitle: this.decodeHtmlEntities(datatitle),
+          fileext,
+          datasize
+        })
+      }
+
+      return items.length > 0 ? items : undefined
+    } catch (e) {
+      console.error('ExportService: 解析聊天记录失败:', e)
+      return undefined
+    }
+  }
+
+  /**
+   * 解码 HTML 实体
+   */
+  private decodeHtmlEntities(text: string): string {
+    if (!text) return ''
+    return text
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&apos;/g, "'")
   }
 
   private normalizeAppMessageContent(content: string): string {
@@ -1235,6 +1395,7 @@ class ExportService {
           let emojiCdnUrl: string | undefined
           let emojiMd5: string | undefined
           let videoMd5: string | undefined
+          let chatRecordList: any[] | undefined
 
           if (localType === 3 && content) {
             // 图片消息
@@ -1247,6 +1408,12 @@ class ExportService {
           } else if (localType === 43 && content) {
             // 视频消息
             videoMd5 = this.extractVideoMd5(content)
+          } else if (localType === 49 && content) {
+            // 检查是否是聊天记录消息（type=19）
+            const xmlType = this.extractXmlValue(content, 'type')
+            if (xmlType === '19') {
+              chatRecordList = this.parseChatHistory(content)
+            }
           }
 
           rows.push({
@@ -1260,7 +1427,8 @@ class ExportService {
             imageDatName,
             emojiCdnUrl,
             emojiMd5,
-            videoMd5
+            videoMd5,
+            chatRecordList
           })
 
           if (firstTime === null || createTime < firstTime) firstTime = createTime
@@ -1767,10 +1935,10 @@ class ExportService {
           // 使用预先转写的文字
           content = voiceTranscriptMap.get(msg.localId) || '[语音消息 - 转文字失败]'
         } else {
-          content = this.parseMessageContent(msg.content, msg.localType)
+          content = this.parseMessageContent(msg.content, msg.localType, sessionId, msg.createTime)
         }
 
-        return {
+        const message: ChatLabMessage = {
           sender: msg.senderUsername,
           accountName: memberInfo.accountName,
           groupNickname: memberInfo.groupNickname,
@@ -1778,6 +1946,102 @@ class ExportService {
           type: this.convertMessageType(msg.localType, msg.content),
           content: content
         }
+
+        // 如果有聊天记录，添加为嵌套字段
+        if (msg.chatRecordList && msg.chatRecordList.length > 0) {
+          const chatRecords: any[] = []
+          
+          for (const record of msg.chatRecordList) {
+            // 解析时间戳 (格式: "YYYY-MM-DD HH:MM:SS")
+            let recordTimestamp = msg.createTime
+            if (record.sourcetime) {
+              try {
+                const timeParts = record.sourcetime.match(/(\d{4})-(\d{2})-(\d{2}) (\d{2}):(\d{2}):(\d{2})/)
+                if (timeParts) {
+                  const date = new Date(
+                    parseInt(timeParts[1]),
+                    parseInt(timeParts[2]) - 1,
+                    parseInt(timeParts[3]),
+                    parseInt(timeParts[4]),
+                    parseInt(timeParts[5]),
+                    parseInt(timeParts[6])
+                  )
+                  recordTimestamp = Math.floor(date.getTime() / 1000)
+                }
+              } catch (e) {
+                console.error('解析聊天记录时间失败:', e)
+              }
+            }
+
+            // 转换消息类型
+            let recordType = 0 // TEXT
+            let recordContent = record.datadesc || record.datatitle || ''
+            
+            switch (record.datatype) {
+              case 1:
+                recordType = 0 // TEXT
+                break
+              case 3:
+                recordType = 1 // IMAGE
+                recordContent = '[图片]'
+                break
+              case 8:
+              case 49:
+                recordType = 4 // FILE
+                recordContent = record.datatitle ? `[文件] ${record.datatitle}` : '[文件]'
+                break
+              case 34:
+                recordType = 2 // VOICE
+                recordContent = '[语音消息]'
+                break
+              case 43:
+                recordType = 3 // VIDEO
+                recordContent = '[视频]'
+                break
+              case 47:
+                recordType = 5 // EMOJI
+                recordContent = '[动画表情]'
+                break
+              default:
+                recordType = 0
+                recordContent = record.datadesc || record.datatitle || '[消息]'
+            }
+
+            const chatRecord: any = {
+              sender: record.sourcename || 'unknown',
+              accountName: record.sourcename || 'unknown',
+              timestamp: recordTimestamp,
+              type: recordType,
+              content: recordContent
+            }
+            
+            // 添加头像（如果启用导出头像）
+            if (options.exportAvatars && record.sourceheadurl) {
+              chatRecord.avatar = record.sourceheadurl
+            }
+            
+            chatRecords.push(chatRecord)
+            
+            // 添加成员信息到 memberSet
+            if (record.sourcename && !collected.memberSet.has(record.sourcename)) {
+              const newMember: ChatLabMember = {
+                platformId: record.sourcename,
+                accountName: record.sourcename
+              }
+              if (options.exportAvatars && record.sourceheadurl) {
+                newMember.avatar = record.sourceheadurl
+              }
+              collected.memberSet.set(record.sourcename, {
+                member: newMember,
+                avatarUrl: record.sourceheadurl
+              })
+            }
+          }
+          
+          message.chatRecords = chatRecords
+        }
+
+        return message
       })
 
       const avatarMap = options.exportAvatars
