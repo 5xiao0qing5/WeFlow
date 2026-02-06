@@ -6,6 +6,17 @@
   animation: appFadeIn 0.35s ease-out;
 }
 
+.window-drag-region {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 150px; // 预留系统最小化/最大化/关闭按钮区域
+  height: 40px;
+  -webkit-app-region: drag;
+  pointer-events: auto;
+  z-index: 2000;
+}
+
 .main-layout {
   flex: 1;
   display: flex;

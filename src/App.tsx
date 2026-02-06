@@ -346,6 +346,7 @@ function App() {
   // 主窗口 - 完整布局
   return (
     <div className="app-container">
+      <div className="window-drag-region" aria-hidden="true" />
       {isLocked && (
         <LockScreen
           onUnlock={() => setLocked(false)}
