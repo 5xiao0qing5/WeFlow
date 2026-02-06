@@ -704,7 +704,7 @@ class ExportService {
       return revokeMatch[1].trim()
     }
 
-    // 3. 提取 pat 拍一拍消息
+    // 3. 提取 pat 拍一拍消息（sysmsg 内的 template 格式）
     const patMatch = /<template><!\[CDATA\[(.*?)\]\]><\/template>/i.exec(content)
     if (patMatch) {
       // 移除模板变量占位符
@@ -715,6 +715,15 @@ class ExportService {
         })
         .replace(/<[^>]+>/g, '')
         .trim()
+    }
+
+    // 3.5 提取 <title> 内容（适用于 appmsg 格式的拍一拍等消息）
+    const titleMatch = /<title>([\s\S]*?)<\/title>/i.exec(content)
+    if (titleMatch) {
+      const title = titleMatch[1].replace(/<!\[CDATA\[/g, '').replace(/\]\]>/g, '').trim()
+      if (title) {
+        return title
+      }
     }
 
     // 4. 处理 CDATA 内容
