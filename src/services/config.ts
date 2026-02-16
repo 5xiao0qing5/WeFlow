@@ -12,6 +12,7 @@ export const CONFIG_KEYS = {
   LAST_SESSION: 'lastSession',
   WINDOW_BOUNDS: 'windowBounds',
   CACHE_PATH: 'cachePath',
+  WEIXIN_DLL_PATH: 'weixinDllPath',
   EXPORT_PATH: 'exportPath',
   AGREEMENT_ACCEPTED: 'agreementAccepted',
   LOG_ENABLED: 'logEnabled',
@@ -161,6 +162,17 @@ export async function setCachePath(path: string): Promise<void> {
   await config.set(CONFIG_KEYS.CACHE_PATH, path)
 }
 
+
+// 获取 Weixin.dll 路径
+export async function getWeixinDllPath(): Promise<string | null> {
+  const value = await config.get(CONFIG_KEYS.WEIXIN_DLL_PATH)
+  return value as string | null
+}
+
+// 设置 Weixin.dll 路径
+export async function setWeixinDllPath(path: string): Promise<void> {
+  await config.set(CONFIG_KEYS.WEIXIN_DLL_PATH, path)
+}
 
 // 获取导出路径
 export async function getExportPath(): Promise<string | null> {

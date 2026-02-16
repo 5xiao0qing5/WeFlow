@@ -12,6 +12,7 @@ interface ConfigSchema {
 
   // 缓存相关
   cachePath: string
+  weixinDllPath: string
   lastOpenedDb: string
   lastSession: string
 
@@ -72,6 +73,7 @@ export class ConfigService {
         imageAesKey: '',
         wxidConfigs: {},
         cachePath: '',
+        weixinDllPath: '',
         lastOpenedDb: '',
         lastSession: '',
         theme: 'system',
