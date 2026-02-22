@@ -136,7 +136,6 @@ export class WcdbService {
    */
   setMonitor(callback: (type: string, json: string) => void): void {
     this.monitorListener = callback;
-    // Notify worker to enable monitor
     this.callWorker('setMonitor').catch(() => { });
   }
 

@@ -14,7 +14,6 @@ export function GlobalSessionMonitor() {
     } = useChatStore()
 
     const sessionsRef = useRef(sessions)
-
     // 保持 ref 同步
     useEffect(() => {
         sessionsRef.current = sessions
@@ -47,9 +46,10 @@ export function GlobalSessionMonitor() {
             return () => {
                 removeListener()
             }
+        } else {
         }
         return () => { }
-    }, []) // 空依赖数组 - 主要是静态的
+    }, [])
 
     const refreshSessions = async () => {
         try {

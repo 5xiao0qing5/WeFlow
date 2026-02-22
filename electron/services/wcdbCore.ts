@@ -66,8 +66,12 @@ export class WcdbCore {
   private wcdbVerifyUser: any = null
   private wcdbStartMonitorPipe: any = null
   private wcdbStopMonitorPipe: any = null
+  private wcdbGetMonitorPipeName: any = null
 
   private monitorPipeClient: any = null
+  private monitorCallback: ((type: string, json: string) => void) | null = null
+  private monitorReconnectTimer: any = null
+  private monitorPipePath: string = ''
 
 
   private avatarUrlCache: Map<string, { url?: string; updatedAt: number }> = new Map()
@@ -92,63 +96,94 @@ export class WcdbCore {
   // 使用命名管道 IPC
   startMonitor(callback: (type: string, json: string) => void): boolean {
     if (!this.wcdbStartMonitorPipe) {
-      this.writeLog('startMonitor: wcdbStartMonitorPipe not available')
       return false
     }
+
+    this.monitorCallback = callback
 
     try {
       const result = this.wcdbStartMonitorPipe()
       if (result !== 0) {
-        this.writeLog(`startMonitor: wcdbStartMonitorPipe failed with ${result}`)
         return false
       }
 
-      const net = require('net')
-      const PIPE_PATH = '\\\\.\\pipe\\weflow_monitor'
-
-      setTimeout(() => {
-        this.monitorPipeClient = net.createConnection(PIPE_PATH, () => {
-          this.writeLog('Monitor pipe connected')
-        })
-
-        let buffer = ''
-        this.monitorPipeClient.on('data', (data: Buffer) => {
-          buffer += data.toString('utf8')
-          const lines = buffer.split('\n')
-          buffer = lines.pop() || ''
-          for (const line of lines) {
-            if (line.trim()) {
-              try {
-                const parsed = JSON.parse(line)
-                callback(parsed.action || 'update', line)
-              } catch {
-                callback('update', line)
-              }
-            }
+      // 从 DLL 获取动态管道名（含 PID）
+      let pipePath = '\\\\.\\pipe\\weflow_monitor'
+      if (this.wcdbGetMonitorPipeName) {
+        try {
+          const namePtr = [null as any]
+          if (this.wcdbGetMonitorPipeName(namePtr) === 0 && namePtr[0]) {
+            pipePath = this.koffi.decode(namePtr[0], 'char', -1)
+            this.wcdbFreeString(namePtr[0])
           }
-        })
+        } catch {}
+      }
 
-        this.monitorPipeClient.on('error', (err: Error) => {
-          this.writeLog(`Monitor pipe error: ${err.message}`)
-        })
-
-        this.monitorPipeClient.on('close', () => {
-          this.writeLog('Monitor pipe closed')
-          this.monitorPipeClient = null
-        })
-      }, 100)
-
-      this.writeLog('Monitor started via named pipe IPC')
+      this.connectMonitorPipe(pipePath)
       return true
     } catch (e) {
-      console.error('打开数据库异常:', e)
+      console.error('[wcdbCore] startMonitor exception:', e)
       return false
     }
+  }
+
+  // 连接命名管道，支持断开后自动重连
+  private connectMonitorPipe(pipePath: string) {
+    this.monitorPipePath = pipePath
+    const net = require('net')
+
+    setTimeout(() => {
+      if (!this.monitorCallback) return
+
+      this.monitorPipeClient = net.createConnection(this.monitorPipePath, () => {
+      })
+
+      let buffer = ''
+      this.monitorPipeClient.on('data', (data: Buffer) => {
+        buffer += data.toString('utf8')
+        const lines = buffer.split('\n')
+        buffer = lines.pop() || ''
+        for (const line of lines) {
+          if (line.trim()) {
+            try {
+              const parsed = JSON.parse(line)
+              this.monitorCallback?.(parsed.action || 'update', line)
+            } catch {
+              this.monitorCallback?.('update', line)
+            }
+          }
+        }
+      })
+
+      this.monitorPipeClient.on('error', () => {
+      })
+
+      this.monitorPipeClient.on('close', () => {
+        this.monitorPipeClient = null
+        this.scheduleReconnect()
+      })
+    }, 100)
+  }
+
+  // 定时重连
+  private scheduleReconnect() {
+    if (this.monitorReconnectTimer || !this.monitorCallback) return
+    this.monitorReconnectTimer = setTimeout(() => {
+      this.monitorReconnectTimer = null
+      if (this.monitorCallback && !this.monitorPipeClient) {
+        this.connectMonitorPipe(this.monitorPipePath)
+      }
+    }, 3000)
   }
 
 
 
   stopMonitor(): void {
+    this.monitorCallback = null
+    if (this.monitorReconnectTimer) {
+      clearTimeout(this.monitorReconnectTimer)
+      this.monitorReconnectTimer = null
+    }
     if (this.monitorPipeClient) {
       this.monitorPipeClient.destroy()
       this.monitorPipeClient = null
@@ -569,11 +604,13 @@ export class WcdbCore {
       try {
         this.wcdbStartMonitorPipe = this.lib.func('int32 wcdb_start_monitor_pipe()')
         this.wcdbStopMonitorPipe = this.lib.func('void wcdb_stop_monitor_pipe()')
+        this.wcdbGetMonitorPipeName = this.lib.func('int32 wcdb_get_monitor_pipe_name(_Out_ void** outName)')
         this.writeLog('Monitor pipe functions loaded')
       } catch (e) {
         console.warn('Failed to load monitor pipe functions:', e)
         this.wcdbStartMonitorPipe = null
         this.wcdbStopMonitorPipe = null
+        this.wcdbGetMonitorPipeName = null
       }
 
       // void VerifyUser(int64_t hwnd_ptr, const char* message, char* out_result, int max_len)
