@@ -5227,8 +5227,8 @@ class ChatService {
         const groupMyMessagesHint = sessionId.endsWith('@chatroom')
           ? this.getGroupMyMessageCountHintEntry(sessionId)
           : null
+        const cachedResult = this.getSessionStatsCacheEntry(sessionId)
         if (!forceRefresh) {
-          const cachedResult = this.getSessionStatsCacheEntry(sessionId)
           if (cachedResult && this.supportsRequestedRelation(cachedResult.entry, includeRelations)) {
             const stale = now - cachedResult.entry.updatedAt > this.sessionStatsCacheTtlMs
             if (!stale || allowStaleCache) {
@@ -5248,7 +5248,8 @@ class ChatService {
               continue
             }
           }
-          if (allowStaleCache) {
+          // allowStaleCache 仅对“已有缓存”生效；无缓存会话仍需进入计算流程。
+          if (allowStaleCache && cachedResult) {
             needsRefreshSet.add(sessionId)
             continue
           }
