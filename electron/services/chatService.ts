@@ -6284,6 +6284,36 @@ class ChatService {
   }
 
   /**
+   * 批量统计转写缓存命中数（按会话维度）。
+   * 仅基于本地 transcripts cache key 统计，用于导出前快速预估。
+   */
+  getCachedVoiceTranscriptCountMap(sessionIds: string[]): Record<string, number> {
+    this.loadTranscriptCacheIfNeeded()
+    const normalizedIds = Array.from(
+      new Set((sessionIds || []).map((id) => String(id || '').trim()).filter(Boolean))
+    )
+    const targetSet = new Set(normalizedIds)
+    const countMap: Record<string, number> = {}
+    for (const sessionId of normalizedIds) {
+      countMap[sessionId] = 0
+    }
+    if (targetSet.size === 0) return countMap
+
+    for (const key of this.voiceTranscriptCache.keys()) {
+      const rawKey = String(key || '')
+      if (!rawKey) continue
+      // cacheKey 形如 `${sessionId}_${createTime}`，createTime 为数字；兼容旧 key 时使用贪婪匹配。
+      const match = /^(.*)_(\d+)$/.exec(rawKey)
+      if (!match) continue
+      const sessionId = String(match[1] || '').trim()
+      if (!sessionId || !targetSet.has(sessionId)) continue
+      countMap[sessionId] = (countMap[sessionId] || 0) + 1
+    }
+
+    return countMap
+  }
+
+  /**
    * 获取某会话的所有语音消息（localType=34），用于批量转写
    */
   async getAllVoiceMessages(sessionId: string): Promise<{ success: boolean; messages?: Message[]; error?: string }> {

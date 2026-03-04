@@ -5729,6 +5729,13 @@ class ExportService {
     if (!conn.success || !conn.cleanedWxid) {
       return { totalMessages: 0, voiceMessages: 0, cachedVoiceCount: 0, needTranscribeCount: 0, mediaMessages: 0, estimatedSeconds: 0, sessions: [] }
     }
+    const normalizedSessionIds = Array.from(
+      new Set((sessionIds || []).map((id) => String(id || '').trim()).filter(Boolean))
+    )
+    if (normalizedSessionIds.length === 0) {
+      return { totalMessages: 0, voiceMessages: 0, cachedVoiceCount: 0, needTranscribeCount: 0, mediaMessages: 0, estimatedSeconds: 0, sessions: [] }
+    }
+
     const cleanedMyWxid = conn.cleanedWxid
     const sessionsStats: Array<{ sessionId: string; displayName: string; totalCount: number; voiceCount: number }> = []
     let totalMessages = 0
@@ -5736,7 +5743,102 @@ class ExportService {
     let cachedVoiceCount = 0
     let mediaMessages = 0
 
-    for (const sessionId of sessionIds) {
+    const hasSenderFilter = Boolean(String(options.senderUsername || '').trim())
+    const canUseAggregatedStats = this.isUnboundedDateRange(options.dateRange) && !hasSenderFilter
+
+    // 快速路径：直接复用 ChatService 聚合统计，避免逐会话 collectMessages 扫全量消息。
+    if (canUseAggregatedStats) {
+      try {
+        const statsResult = await chatService.getExportSessionStats(normalizedSessionIds, {
+          includeRelations: false,
+          allowStaleCache: true
+        })
+        if (statsResult.success && statsResult.data) {
+          const cachedVoiceCountMap = chatService.getCachedVoiceTranscriptCountMap(normalizedSessionIds)
+          const fastRows = await parallelLimit(
+            normalizedSessionIds,
+            8,
+            async (sessionId): Promise<{
+              sessionId: string
+              displayName: string
+              totalCount: number
+              voiceCount: number
+              cachedVoiceCount: number
+              mediaCount: number
+            }> => {
+              let displayName = sessionId
+              try {
+                const sessionInfo = await this.getContactInfo(sessionId)
+                displayName = sessionInfo.displayName || sessionId
+              } catch {
+                // 预估阶段显示名获取失败不阻塞统计
+              }
+
+              const metric = statsResult.data?.[sessionId]
+              const totalCount = Number.isFinite(metric?.totalMessages)
+                ? Math.max(0, Math.floor(metric!.totalMessages))
+                : 0
+              const voiceCount = Number.isFinite(metric?.voiceMessages)
+                ? Math.max(0, Math.floor(metric!.voiceMessages))
+                : 0
+              const imageCount = Number.isFinite(metric?.imageMessages)
+                ? Math.max(0, Math.floor(metric!.imageMessages))
+                : 0
+              const videoCount = Number.isFinite(metric?.videoMessages)
+                ? Math.max(0, Math.floor(metric!.videoMessages))
+                : 0
+              const emojiCount = Number.isFinite(metric?.emojiMessages)
+                ? Math.max(0, Math.floor(metric!.emojiMessages))
+                : 0
+              const cachedCountRaw = Number(cachedVoiceCountMap[sessionId] || 0)
+              const sessionCachedVoiceCount = Math.min(
+                voiceCount,
+                Number.isFinite(cachedCountRaw) ? Math.max(0, Math.floor(cachedCountRaw)) : 0
+              )
+
+              return {
+                sessionId,
+                displayName,
+                totalCount,
+                voiceCount,
+                cachedVoiceCount: sessionCachedVoiceCount,
+                mediaCount: voiceCount + imageCount + videoCount + emojiCount
+              }
+            }
+          )
+
+          for (const row of fastRows) {
+            totalMessages += row.totalCount
+            voiceMessages += row.voiceCount
+            cachedVoiceCount += row.cachedVoiceCount
+            mediaMessages += row.mediaCount
+            sessionsStats.push({
+              sessionId: row.sessionId,
+              displayName: row.displayName,
+              totalCount: row.totalCount,
+              voiceCount: row.voiceCount
+            })
+          }
+
+          const needTranscribeCount = Math.max(0, voiceMessages - cachedVoiceCount)
+          const estimatedSeconds = needTranscribeCount * 2
+          return {
+            totalMessages,
+            voiceMessages,
+            cachedVoiceCount,
+            needTranscribeCount,
+            mediaMessages,
+            estimatedSeconds,
+            sessions: sessionsStats
+          }
+        }
+      } catch (error) {
+        // 聚合统计失败时自动回退到慢路径，保证功能正确。
+      }
+    }
+
+    // 回退路径：保留旧逻辑，支持有时间范围/发送者过滤等需要精确筛选的场景。
+    for (const sessionId of normalizedSessionIds) {
       const sessionInfo = await this.getContactInfo(sessionId)
       const collected = await this.collectMessages(
         sessionId,
@@ -5752,7 +5854,6 @@ class ExportService {
         return (t === 3) || (t === 47) || (t === 43) || (t === 34)
       })
 
-      // 检查已缓存的转写数量
       let cached = 0
       for (const msg of voiceMsgs) {
         if (chatService.hasTranscriptCache(sessionId, String(msg.localId), msg.createTime)) {
