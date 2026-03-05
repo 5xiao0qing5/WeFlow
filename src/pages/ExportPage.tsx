@@ -444,7 +444,7 @@ const formatPathBrief = (value: string, maxLength = 52): string => {
 }
 
 const formatRecentExportTime = (timestamp?: number, now = Date.now()): string => {
-  if (!timestamp) return ''
+  if (!timestamp) return '未导出'
   const diff = Math.max(0, now - timestamp)
   const minute = 60 * 1000
   const hour = 60 * minute
@@ -5067,7 +5067,7 @@ function ExportPage() {
     const checked = canExport && selectedSessions.has(contact.username)
     const isRunning = canExport && runningSessionIds.has(contact.username)
     const isQueued = canExport && queuedSessionIds.has(contact.username)
-    const recent = canExport ? formatRecentExportTime(lastExportBySession[contact.username], nowTick) : ''
+    const recentExportTime = canExport ? formatRecentExportTime(lastExportBySession[contact.username], nowTick) : '—'
     const countedMessages = normalizeMessageCount(sessionMessageCounts[contact.username])
     const hintedMessages = normalizeMessageCount(matchedSession?.messageCountHint)
     const displayedMessageCount = countedMessages ?? hintedMessages
@@ -5214,26 +5214,29 @@ function ExportPage() {
               >
                 详情
               </button>
-              <button
-                className={`row-export-btn ${isRunning ? 'running' : ''} ${!canExport ? 'no-session' : ''}`}
-                disabled={!canExport || isRunning}
-                onClick={() => {
-                  if (!matchedSession || !matchedSession.hasSession) return
-                  openSingleExport({
-                    ...matchedSession,
-                    displayName: contact.displayName || matchedSession.displayName || matchedSession.username
-                  })
-                }}
-              >
-                {isRunning ? (
-                  <>
-                    <Loader2 size={14} className="spin" />
-                    导出中
-                  </>
-                ) : !canExport ? '暂无会话' : isQueued ? '排队中' : '单会话导出'}
-              </button>
+              <div className="row-export-action-stack">
+                <button
+                  type="button"
+                  className={`row-export-link ${isRunning ? 'state-running' : ''} ${!canExport ? 'state-disabled' : ''}`}
+                  disabled={!canExport || isRunning}
+                  onClick={() => {
+                    if (!matchedSession || !matchedSession.hasSession) return
+                    openSingleExport({
+                      ...matchedSession,
+                      displayName: contact.displayName || matchedSession.displayName || matchedSession.username
+                    })
+                  }}
+                >
+                  {!canExport ? '暂无会话' : isRunning ? '导出中...' : isQueued ? '排队中' : '单会话导出'}
+                </button>
+                {canExport && (
+                  <div className="row-export-meta">
+                    <span className="row-export-meta-label">最近导出</span>
+                    <span className="row-export-time">{recentExportTime}</span>
+                  </div>
+                )}
+              </div>
             </div>
-            {recent && <span className="row-export-time">{recent}</span>}
           </div>
         </div>
       </div>
