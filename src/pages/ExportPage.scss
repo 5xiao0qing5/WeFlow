@@ -995,6 +995,7 @@
   --contacts-default-list-height: calc(var(--contacts-row-height) * var(--contacts-default-visible-rows));
   --contacts-select-col-width: 34px;
   --contacts-message-col-width: 120px;
+  --contacts-media-col-width: 72px;
   --contacts-action-col-width: 280px;
   overflow: hidden;
   border: 1px solid var(--border-color);
@@ -1160,6 +1161,16 @@
 
   .contacts-list-header-count {
     width: var(--contacts-message-col-width);
+    text-align: center;
+    flex-shrink: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .contacts-list-header-media {
+    width: var(--contacts-media-col-width);
+    min-width: var(--contacts-media-col-width);
     text-align: center;
     flex-shrink: 0;
     white-space: nowrap;
@@ -1353,6 +1364,28 @@
     gap: 4px;
     flex-shrink: 0;
     text-align: center;
+  }
+
+  .row-media-metric {
+    width: var(--contacts-media-col-width);
+    min-width: var(--contacts-media-col-width);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-shrink: 0;
+    text-align: center;
+  }
+
+  .row-media-metric-value {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.2;
+    color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+
+    &.loading {
+      color: var(--text-tertiary);
+    }
   }
 
   .row-message-stats {
@@ -2661,6 +2694,7 @@
 
   .table-wrap {
     --contacts-message-col-width: 104px;
+    --contacts-media-col-width: 62px;
     --contacts-action-col-width: 236px;
   }
 
@@ -2687,6 +2721,10 @@
     min-width: var(--contacts-message-col-width);
   }
 
+  .table-wrap .row-media-metric {
+    min-width: var(--contacts-media-col-width);
+  }
+
   .table-wrap .row-message-stats {
     gap: 6px;
   }
@@ -2696,6 +2734,10 @@
   }
 
   .table-wrap .row-message-count-value {
+    font-size: 11px;
+  }
+
+  .table-wrap .row-media-metric-value {
     font-size: 11px;
   }
 

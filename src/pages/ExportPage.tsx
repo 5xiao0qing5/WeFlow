@@ -164,6 +164,11 @@ interface TimeRangeDialogDraft {
 
 const defaultTxtColumns = ['index', 'time', 'senderRole', 'messageType', 'content']
 const DETAIL_PRECISE_REFRESH_COOLDOWN_MS = 10 * 60 * 1000
+const SESSION_MEDIA_METRIC_PREFETCH_ROWS = 10
+const SESSION_MEDIA_METRIC_BATCH_SIZE = 12
+const SESSION_MEDIA_METRIC_BACKGROUND_FEED_SIZE = 48
+const SESSION_MEDIA_METRIC_BACKGROUND_FEED_INTERVAL_MS = 120
+const SESSION_MEDIA_METRIC_CACHE_FLUSH_DELAY_MS = 1200
 const contentTypeLabels: Record<ContentType, string> = {
   text: '聊天文本',
   voice: '语音',
@@ -870,6 +875,40 @@ const normalizeMessageCount = (value: unknown): number | undefined => {
   return Math.floor(parsed)
 }
 
+const pickSessionMediaMetric = (
+  metricRaw: SessionExportMetric | SessionContentMetric | undefined
+): SessionContentMetric | null => {
+  if (!metricRaw) return null
+  const voiceMessages = normalizeMessageCount(metricRaw.voiceMessages)
+  const imageMessages = normalizeMessageCount(metricRaw.imageMessages)
+  const videoMessages = normalizeMessageCount(metricRaw.videoMessages)
+  const emojiMessages = normalizeMessageCount(metricRaw.emojiMessages)
+  if (
+    typeof voiceMessages !== 'number' &&
+    typeof imageMessages !== 'number' &&
+    typeof videoMessages !== 'number' &&
+    typeof emojiMessages !== 'number'
+  ) {
+    return null
+  }
+  return {
+    voiceMessages,
+    imageMessages,
+    videoMessages,
+    emojiMessages
+  }
+}
+
+const hasCompleteSessionMediaMetric = (metricRaw: SessionContentMetric | undefined): boolean => {
+  if (!metricRaw) return false
+  return (
+    typeof normalizeMessageCount(metricRaw.voiceMessages) === 'number' &&
+    typeof normalizeMessageCount(metricRaw.imageMessages) === 'number' &&
+    typeof normalizeMessageCount(metricRaw.videoMessages) === 'number' &&
+    typeof normalizeMessageCount(metricRaw.emojiMessages) === 'number'
+  )
+}
+
 const WriteLayoutSelector = memo(function WriteLayoutSelector({
   writeLayout,
   onChange,
@@ -1209,6 +1248,7 @@ function ExportPage() {
   const [avatarCacheUpdatedAt, setAvatarCacheUpdatedAt] = useState<number | null>(null)
   const [sessionMessageCounts, setSessionMessageCounts] = useState<Record<string, number>>({})
   const [isLoadingSessionCounts, setIsLoadingSessionCounts] = useState(false)
+  const [isSessionCountStageReady, setIsSessionCountStageReady] = useState(false)
   const [sessionContentMetrics, setSessionContentMetrics] = useState<Record<string, SessionContentMetric>>({})
   const [contactsLoadTimeoutMs, setContactsLoadTimeoutMs] = useState(DEFAULT_CONTACTS_LOAD_TIMEOUT_MS)
   const [contactsLoadSession, setContactsLoadSession] = useState<ContactsLoadSession | null>(null)
@@ -1299,6 +1339,7 @@ function ExportPage() {
   const sessionTableSectionRef = useRef<HTMLDivElement | null>(null)
   const detailRequestSeqRef = useRef(0)
   const sessionsRef = useRef<SessionRow[]>([])
+  const sessionContentMetricsRef = useRef<Record<string, SessionContentMetric>>({})
   const contactsListSizeRef = useRef(0)
   const contactsUpdatedAtRef = useRef<number | null>(null)
   const sessionsHydratedAtRef = useRef(0)
@@ -1307,9 +1348,23 @@ function ExportPage() {
   const activeTaskCountRef = useRef(0)
   const hasBaseConfigReadyRef = useRef(false)
   const sessionCountRequestIdRef = useRef(0)
+  const isLoadingSessionCountsRef = useRef(false)
   const activeTabRef = useRef<ConversationTab>('private')
   const detailStatsPriorityRef = useRef(false)
   const sessionPreciseRefreshAtRef = useRef<Record<string, number>>({})
+  const sessionMediaMetricQueueRef = useRef<string[]>([])
+  const sessionMediaMetricQueuedSetRef = useRef<Set<string>>(new Set())
+  const sessionMediaMetricLoadingSetRef = useRef<Set<string>>(new Set())
+  const sessionMediaMetricReadySetRef = useRef<Set<string>>(new Set())
+  const sessionMediaMetricRunIdRef = useRef(0)
+  const sessionMediaMetricWorkerRunningRef = useRef(false)
+  const sessionMediaMetricBackgroundFeedTimerRef = useRef<number | null>(null)
+  const sessionMediaMetricPersistTimerRef = useRef<number | null>(null)
+  const sessionMediaMetricPendingPersistRef = useRef<Record<string, configService.ExportSessionContentMetricCacheEntry>>({})
+  const sessionMediaMetricVisibleRangeRef = useRef<{ startIndex: number; endIndex: number }>({
+    startIndex: 0,
+    endIndex: -1
+  })
 
   const ensureExportCacheScope = useCallback(async (): Promise<string> => {
     if (exportCacheScopeReadyRef.current) {
@@ -1358,6 +1413,14 @@ function ExportPage() {
   useEffect(() => {
     contactsLoadTimeoutMsRef.current = contactsLoadTimeoutMs
   }, [contactsLoadTimeoutMs])
+
+  useEffect(() => {
+    isLoadingSessionCountsRef.current = isLoadingSessionCounts
+  }, [isLoadingSessionCounts])
+
+  useEffect(() => {
+    sessionContentMetricsRef.current = sessionContentMetrics
+  }, [sessionContentMetrics])
 
   const loadContactsList = useCallback(async (options?: { scopeKey?: string }) => {
     const scopeKey = options?.scopeKey || await ensureExportCacheScope()
@@ -1821,6 +1884,184 @@ function ExportPage() {
     }
   }, [])
 
+  const resetSessionMediaMetricLoader = useCallback(() => {
+    sessionMediaMetricRunIdRef.current += 1
+    sessionMediaMetricQueueRef.current = []
+    sessionMediaMetricQueuedSetRef.current.clear()
+    sessionMediaMetricLoadingSetRef.current.clear()
+    sessionMediaMetricReadySetRef.current.clear()
+    sessionMediaMetricWorkerRunningRef.current = false
+    sessionMediaMetricPendingPersistRef.current = {}
+    sessionMediaMetricVisibleRangeRef.current = { startIndex: 0, endIndex: -1 }
+    if (sessionMediaMetricBackgroundFeedTimerRef.current) {
+      window.clearTimeout(sessionMediaMetricBackgroundFeedTimerRef.current)
+      sessionMediaMetricBackgroundFeedTimerRef.current = null
+    }
+    if (sessionMediaMetricPersistTimerRef.current) {
+      window.clearTimeout(sessionMediaMetricPersistTimerRef.current)
+      sessionMediaMetricPersistTimerRef.current = null
+    }
+  }, [])
+
+  const flushSessionMediaMetricCache = useCallback(async () => {
+    const pendingMetrics = sessionMediaMetricPendingPersistRef.current
+    sessionMediaMetricPendingPersistRef.current = {}
+    if (Object.keys(pendingMetrics).length === 0) return
+
+    try {
+      const scopeKey = await ensureExportCacheScope()
+      const existing = await configService.getExportSessionContentMetricCache(scopeKey)
+      const nextMetrics = {
+        ...(existing?.metrics || {}),
+        ...pendingMetrics
+      }
+      await configService.setExportSessionContentMetricCache(scopeKey, nextMetrics)
+    } catch (error) {
+      console.error('写入导出页会话内容统计缓存失败:', error)
+    }
+  }, [ensureExportCacheScope])
+
+  const scheduleFlushSessionMediaMetricCache = useCallback(() => {
+    if (sessionMediaMetricPersistTimerRef.current) return
+    sessionMediaMetricPersistTimerRef.current = window.setTimeout(() => {
+      sessionMediaMetricPersistTimerRef.current = null
+      void flushSessionMediaMetricCache()
+    }, SESSION_MEDIA_METRIC_CACHE_FLUSH_DELAY_MS)
+  }, [flushSessionMediaMetricCache])
+
+  const isSessionMediaMetricReady = useCallback((sessionId: string): boolean => {
+    if (!sessionId) return true
+    if (sessionMediaMetricReadySetRef.current.has(sessionId)) return true
+    const existing = sessionContentMetricsRef.current[sessionId]
+    if (hasCompleteSessionMediaMetric(existing)) {
+      sessionMediaMetricReadySetRef.current.add(sessionId)
+      return true
+    }
+    return false
+  }, [])
+
+  const enqueueSessionMediaMetricRequests = useCallback((sessionIds: string[], options?: { front?: boolean }) => {
+    const front = options?.front === true
+    const incoming: string[] = []
+    for (const sessionIdRaw of sessionIds) {
+      const sessionId = String(sessionIdRaw || '').trim()
+      if (!sessionId) continue
+      if (sessionMediaMetricQueuedSetRef.current.has(sessionId)) continue
+      if (sessionMediaMetricLoadingSetRef.current.has(sessionId)) continue
+      if (isSessionMediaMetricReady(sessionId)) continue
+      sessionMediaMetricQueuedSetRef.current.add(sessionId)
+      incoming.push(sessionId)
+    }
+    if (incoming.length === 0) return
+    if (front) {
+      sessionMediaMetricQueueRef.current = [...incoming, ...sessionMediaMetricQueueRef.current]
+    } else {
+      sessionMediaMetricQueueRef.current.push(...incoming)
+    }
+  }, [isSessionMediaMetricReady])
+
+  const applySessionMediaMetricsFromStats = useCallback((data?: Record<string, SessionExportMetric>) => {
+    if (!data) return
+    const nextMetrics: Record<string, SessionContentMetric> = {}
+    let hasPatch = false
+    for (const [sessionIdRaw, metricRaw] of Object.entries(data)) {
+      const sessionId = String(sessionIdRaw || '').trim()
+      if (!sessionId) continue
+      const metric = pickSessionMediaMetric(metricRaw)
+      if (!metric) continue
+      nextMetrics[sessionId] = metric
+      hasPatch = true
+      sessionMediaMetricPendingPersistRef.current[sessionId] = {
+        ...sessionMediaMetricPendingPersistRef.current[sessionId],
+        ...metric
+      }
+      if (hasCompleteSessionMediaMetric(metric)) {
+        sessionMediaMetricReadySetRef.current.add(sessionId)
+      }
+    }
+
+    if (hasPatch) {
+      mergeSessionContentMetrics(nextMetrics)
+      scheduleFlushSessionMediaMetricCache()
+    }
+  }, [mergeSessionContentMetrics, scheduleFlushSessionMediaMetricCache])
+
+  const runSessionMediaMetricWorker = useCallback(async (runId: number) => {
+    if (sessionMediaMetricWorkerRunningRef.current) return
+    sessionMediaMetricWorkerRunningRef.current = true
+    try {
+      while (runId === sessionMediaMetricRunIdRef.current) {
+        if (isLoadingSessionCountsRef.current || detailStatsPriorityRef.current) {
+          await new Promise(resolve => window.setTimeout(resolve, 80))
+          continue
+        }
+
+        if (sessionMediaMetricQueueRef.current.length === 0) break
+
+        const batchSessionIds: string[] = []
+        while (batchSessionIds.length < SESSION_MEDIA_METRIC_BATCH_SIZE && sessionMediaMetricQueueRef.current.length > 0) {
+          const nextId = sessionMediaMetricQueueRef.current.shift()
+          if (!nextId) continue
+          sessionMediaMetricQueuedSetRef.current.delete(nextId)
+          if (sessionMediaMetricLoadingSetRef.current.has(nextId)) continue
+          if (isSessionMediaMetricReady(nextId)) continue
+          sessionMediaMetricLoadingSetRef.current.add(nextId)
+          batchSessionIds.push(nextId)
+        }
+        if (batchSessionIds.length === 0) {
+          continue
+        }
+
+        try {
+          const cacheResult = await window.electronAPI.chat.getExportSessionStats(
+            batchSessionIds,
+            { includeRelations: false, allowStaleCache: true, cacheOnly: true }
+          )
+          if (runId !== sessionMediaMetricRunIdRef.current) return
+          if (cacheResult.success && cacheResult.data) {
+            applySessionMediaMetricsFromStats(cacheResult.data as Record<string, SessionExportMetric>)
+          }
+
+          const missingSessionIds = batchSessionIds.filter(sessionId => !isSessionMediaMetricReady(sessionId))
+          if (missingSessionIds.length > 0) {
+            const freshResult = await window.electronAPI.chat.getExportSessionStats(
+              missingSessionIds,
+              { includeRelations: false, allowStaleCache: true }
+            )
+            if (runId !== sessionMediaMetricRunIdRef.current) return
+            if (freshResult.success && freshResult.data) {
+              applySessionMediaMetricsFromStats(freshResult.data as Record<string, SessionExportMetric>)
+            }
+          }
+        } catch (error) {
+          console.error('导出页加载会话媒体统计失败:', error)
+        } finally {
+          for (const sessionId of batchSessionIds) {
+            sessionMediaMetricLoadingSetRef.current.delete(sessionId)
+            if (isSessionMediaMetricReady(sessionId)) {
+              sessionMediaMetricReadySetRef.current.add(sessionId)
+            }
+          }
+        }
+
+        await new Promise(resolve => window.setTimeout(resolve, 0))
+      }
+    } finally {
+      sessionMediaMetricWorkerRunningRef.current = false
+      if (runId === sessionMediaMetricRunIdRef.current && sessionMediaMetricQueueRef.current.length > 0) {
+        void runSessionMediaMetricWorker(runId)
+      }
+    }
+  }, [applySessionMediaMetricsFromStats, isSessionMediaMetricReady])
+
+  const scheduleSessionMediaMetricWorker = useCallback(() => {
+    if (!isSessionCountStageReady) return
+    if (isLoadingSessionCountsRef.current) return
+    if (sessionMediaMetricWorkerRunningRef.current) return
+    const runId = sessionMediaMetricRunIdRef.current
+    void runSessionMediaMetricWorker(runId)
+  }, [isSessionCountStageReady, runSessionMediaMetricWorker])
+
   const loadSessionMessageCounts = useCallback(async (
     sourceSessions: SessionRow[],
     priorityTab: ConversationTab,
@@ -1832,6 +2073,7 @@ function ExportPage() {
     const requestId = sessionCountRequestIdRef.current + 1
     sessionCountRequestIdRef.current = requestId
     const isStale = () => sessionCountRequestIdRef.current !== requestId
+    setIsSessionCountStageReady(false)
 
     const exportableSessions = sourceSessions.filter(session => session.hasSession)
     const seededHintCounts = exportableSessions.reduce<Record<string, number>>((acc, session) => {
@@ -1862,6 +2104,9 @@ function ExportPage() {
 
     if (exportableSessions.length === 0) {
       setIsLoadingSessionCounts(false)
+      if (!isStale()) {
+        setIsSessionCountStageReady(true)
+      }
       return { ...accumulatedCounts }
     }
 
@@ -1923,6 +2168,7 @@ function ExportPage() {
     } finally {
       if (!isStale()) {
         setIsLoadingSessionCounts(false)
+        setIsSessionCountStageReady(true)
         if (options?.scopeKey && Object.keys(accumulatedCounts).length > 0) {
           try {
             await configService.setExportSessionMessageCountCache(options.scopeKey, accumulatedCounts)
@@ -1940,12 +2186,14 @@ function ExportPage() {
     sessionLoadTokenRef.current = loadToken
     sessionsHydratedAtRef.current = 0
     sessionPreciseRefreshAtRef.current = {}
+    resetSessionMediaMetricLoader()
     setIsLoading(true)
     setIsSessionEnriching(false)
     sessionCountRequestIdRef.current += 1
     setSessionMessageCounts({})
     setSessionContentMetrics({})
     setIsLoadingSessionCounts(false)
+    setIsSessionCountStageReady(false)
 
     const isStale = () => sessionLoadTokenRef.current !== loadToken
 
@@ -1955,10 +2203,12 @@ function ExportPage() {
 
       const [
         cachedContactsPayload,
-        cachedMessageCountsPayload
+        cachedMessageCountsPayload,
+        cachedContentMetricsPayload
       ] = await Promise.all([
         loadContactsCaches(scopeKey),
-        configService.getExportSessionMessageCountCache(scopeKey)
+        configService.getExportSessionMessageCountCache(scopeKey),
+        configService.getExportSessionContentMetricCache(scopeKey)
       ])
       if (isStale()) return
 
@@ -2010,6 +2260,16 @@ function ExportPage() {
           acc[sessionId] = { totalMessages: count }
           return acc
         }, {})
+        const cachedContentMetrics = Object.entries(cachedContentMetricsPayload?.metrics || {}).reduce<Record<string, SessionContentMetric>>((acc, [sessionId, rawMetric]) => {
+          if (!exportableSessionIdSet.has(sessionId)) return acc
+          const metric = pickSessionMediaMetric(rawMetric)
+          if (!metric) return acc
+          acc[sessionId] = metric
+          if (hasCompleteSessionMediaMetric(metric)) {
+            sessionMediaMetricReadySetRef.current.add(sessionId)
+          }
+          return acc
+        }, {})
 
         if (isStale()) return
         if (Object.keys(cachedMessageCounts).length > 0) {
@@ -2017,6 +2277,9 @@ function ExportPage() {
         }
         if (Object.keys(cachedCountAsMetrics).length > 0) {
           mergeSessionContentMetrics(cachedCountAsMetrics)
+        }
+        if (Object.keys(cachedContentMetrics).length > 0) {
+          mergeSessionContentMetrics(cachedContentMetrics)
         }
         setSessions(baseSessions)
         sessionsHydratedAtRef.current = Date.now()
@@ -2218,7 +2481,7 @@ function ExportPage() {
     } finally {
       if (!isStale()) setIsLoading(false)
     }
-  }, [ensureExportCacheScope, loadContactsCaches, loadSessionMessageCounts, mergeSessionContentMetrics, syncContactTypeCounts])
+  }, [ensureExportCacheScope, loadContactsCaches, loadSessionMessageCounts, mergeSessionContentMetrics, resetSessionMediaMetricLoader, syncContactTypeCounts])
 
   useEffect(() => {
     if (!isExportRoute) return
@@ -3354,6 +3617,107 @@ function ExportPage() {
     setIsContactsListAtTop(true)
   }, [activeTab, searchKeyword])
 
+  const collectVisibleSessionMetricTargets = useCallback((sourceContacts: ContactInfo[]): string[] => {
+    if (sourceContacts.length === 0) return []
+    const startCandidate = sessionMediaMetricVisibleRangeRef.current.startIndex
+    const endCandidate = sessionMediaMetricVisibleRangeRef.current.endIndex
+    const startIndex = Math.max(0, Math.min(sourceContacts.length - 1, startCandidate >= 0 ? startCandidate : 0))
+    const visibleEnd = endCandidate >= startIndex
+      ? endCandidate
+      : Math.min(sourceContacts.length - 1, startIndex + 9)
+    const endIndex = Math.max(startIndex, Math.min(sourceContacts.length - 1, visibleEnd + SESSION_MEDIA_METRIC_PREFETCH_ROWS))
+    const sessionIds: string[] = []
+    for (let index = startIndex; index <= endIndex; index += 1) {
+      const contact = sourceContacts[index]
+      if (!contact?.username) continue
+      const mappedSession = sessionRowByUsername.get(contact.username)
+      if (!mappedSession?.hasSession) continue
+      sessionIds.push(contact.username)
+    }
+    return sessionIds
+  }, [sessionRowByUsername])
+
+  const handleContactsRangeChanged = useCallback((range: { startIndex: number; endIndex: number }) => {
+    const startIndex = Number.isFinite(range?.startIndex) ? Math.max(0, Math.floor(range.startIndex)) : 0
+    const endIndex = Number.isFinite(range?.endIndex) ? Math.max(startIndex, Math.floor(range.endIndex)) : startIndex
+    sessionMediaMetricVisibleRangeRef.current = { startIndex, endIndex }
+    if (isLoadingSessionCountsRef.current || !isSessionCountStageReady) return
+    const visibleTargets = collectVisibleSessionMetricTargets(filteredContacts)
+    if (visibleTargets.length === 0) return
+    enqueueSessionMediaMetricRequests(visibleTargets, { front: true })
+    scheduleSessionMediaMetricWorker()
+  }, [collectVisibleSessionMetricTargets, enqueueSessionMediaMetricRequests, filteredContacts, isSessionCountStageReady, scheduleSessionMediaMetricWorker])
+
+  useEffect(() => {
+    if (!isSessionCountStageReady || filteredContacts.length === 0) return
+    const runId = sessionMediaMetricRunIdRef.current
+    const visibleTargets = collectVisibleSessionMetricTargets(filteredContacts)
+    if (visibleTargets.length > 0) {
+      enqueueSessionMediaMetricRequests(visibleTargets, { front: true })
+      scheduleSessionMediaMetricWorker()
+    }
+
+    if (sessionMediaMetricBackgroundFeedTimerRef.current) {
+      window.clearTimeout(sessionMediaMetricBackgroundFeedTimerRef.current)
+      sessionMediaMetricBackgroundFeedTimerRef.current = null
+    }
+
+    const visibleTargetSet = new Set(visibleTargets)
+    let cursor = 0
+    const feedNext = () => {
+      if (runId !== sessionMediaMetricRunIdRef.current) return
+      if (isLoadingSessionCountsRef.current) return
+      const batchIds: string[] = []
+      while (cursor < filteredContacts.length && batchIds.length < SESSION_MEDIA_METRIC_BACKGROUND_FEED_SIZE) {
+        const contact = filteredContacts[cursor]
+        cursor += 1
+        if (!contact?.username) continue
+        if (visibleTargetSet.has(contact.username)) continue
+        const mappedSession = sessionRowByUsername.get(contact.username)
+        if (!mappedSession?.hasSession) continue
+        batchIds.push(contact.username)
+      }
+
+      if (batchIds.length > 0) {
+        enqueueSessionMediaMetricRequests(batchIds)
+        scheduleSessionMediaMetricWorker()
+      }
+
+      if (cursor < filteredContacts.length) {
+        sessionMediaMetricBackgroundFeedTimerRef.current = window.setTimeout(feedNext, SESSION_MEDIA_METRIC_BACKGROUND_FEED_INTERVAL_MS)
+      }
+    }
+
+    feedNext()
+    return () => {
+      if (sessionMediaMetricBackgroundFeedTimerRef.current) {
+        window.clearTimeout(sessionMediaMetricBackgroundFeedTimerRef.current)
+        sessionMediaMetricBackgroundFeedTimerRef.current = null
+      }
+    }
+  }, [
+    collectVisibleSessionMetricTargets,
+    enqueueSessionMediaMetricRequests,
+    filteredContacts,
+    isSessionCountStageReady,
+    scheduleSessionMediaMetricWorker,
+    sessionRowByUsername
+  ])
+
+  useEffect(() => {
+    return () => {
+      if (sessionMediaMetricBackgroundFeedTimerRef.current) {
+        window.clearTimeout(sessionMediaMetricBackgroundFeedTimerRef.current)
+        sessionMediaMetricBackgroundFeedTimerRef.current = null
+      }
+      if (sessionMediaMetricPersistTimerRef.current) {
+        window.clearTimeout(sessionMediaMetricPersistTimerRef.current)
+        sessionMediaMetricPersistTimerRef.current = null
+      }
+      void flushSessionMediaMetricCache()
+    }
+  }, [flushSessionMediaMetricCache])
+
   const contactByUsername = useMemo(() => {
     const map = new Map<string, ContactInfo>()
     for (const contact of contactsList) {
@@ -3820,11 +4184,23 @@ function ExportPage() {
     const countedMessages = normalizeMessageCount(sessionMessageCounts[contact.username])
     const hintedMessages = normalizeMessageCount(matchedSession?.messageCountHint)
     const displayedMessageCount = countedMessages ?? hintedMessages
+    const mediaMetric = sessionContentMetrics[contact.username]
+    const metricLoadingReady = canExport && isSessionCountStageReady
     const messageCountLabel = !canExport
       ? '--'
       : typeof displayedMessageCount === 'number'
         ? displayedMessageCount.toLocaleString('zh-CN')
         : '获取中'
+    const metricToLabel = (value: unknown): string => {
+      const normalized = normalizeMessageCount(value)
+      if (!canExport) return '--'
+      if (!metricLoadingReady) return '--'
+      return typeof normalized === 'number' ? normalized.toLocaleString('zh-CN') : '...'
+    }
+    const emojiLabel = metricToLabel(mediaMetric?.emojiMessages)
+    const voiceLabel = metricToLabel(mediaMetric?.voiceMessages)
+    const imageLabel = metricToLabel(mediaMetric?.imageMessages)
+    const videoLabel = metricToLabel(mediaMetric?.videoMessages)
     const openChatLabel = contact.type === 'friend'
       ? '打开私聊'
       : contact.type === 'group'
@@ -3867,12 +4243,29 @@ function ExportPage() {
                 className="row-open-chat-link"
                 title="在新窗口打开该会话"
                 onClick={() => {
-                  void window.electronAPI.window.openSessionChatWindow(contact.username, { source: 'export' })
+                  void window.electronAPI.window.openSessionChatWindow(contact.username, {
+                    source: 'export',
+                    initialDisplayName: contact.displayName || contact.username,
+                    initialAvatarUrl: contact.avatarUrl,
+                    initialContactType: contact.type
+                  })
                 }}
               >
                 {openChatLabel}
               </button>
             )}
+          </div>
+          <div className="row-media-metric">
+            <strong className={`row-media-metric-value ${emojiLabel === '...' ? 'loading' : ''}`}>{emojiLabel}</strong>
+          </div>
+          <div className="row-media-metric">
+            <strong className={`row-media-metric-value ${voiceLabel === '...' ? 'loading' : ''}`}>{voiceLabel}</strong>
+          </div>
+          <div className="row-media-metric">
+            <strong className={`row-media-metric-value ${imageLabel === '...' ? 'loading' : ''}`}>{imageLabel}</strong>
+          </div>
+          <div className="row-media-metric">
+            <strong className={`row-media-metric-value ${videoLabel === '...' ? 'loading' : ''}`}>{videoLabel}</strong>
           </div>
           <div className="row-action-cell">
             <div className="row-action-main">
@@ -3915,9 +4308,11 @@ function ExportPage() {
     runningSessionIds,
     selectedSessions,
     sessionDetail?.wxid,
+    sessionContentMetrics,
     sessionMessageCounts,
     sessionRowByUsername,
     showSessionDetailPanel,
+    isSessionCountStageReady,
     toggleSelectSession
   ])
   const handleContactsListWheelCapture = useCallback((event: WheelEvent<HTMLDivElement>) => {
@@ -4170,6 +4565,10 @@ function ExportPage() {
                     <span className="contacts-list-header-main-label">联系人（头像/名称/微信号）</span>
                   </span>
                   <span className="contacts-list-header-count">总消息数</span>
+                  <span className="contacts-list-header-media">表情包</span>
+                  <span className="contacts-list-header-media">语音</span>
+                  <span className="contacts-list-header-media">图片</span>
+                  <span className="contacts-list-header-media">视频</span>
                   <span className="contacts-list-header-actions">
                     {selectedCount > 0 && (
                       <>
@@ -4247,6 +4646,7 @@ function ExportPage() {
                   data={filteredContacts}
                   computeItemKey={(_, contact) => contact.username}
                   itemContent={renderContactRow}
+                  rangeChanged={handleContactsRangeChanged}
                   atTopStateChange={setIsContactsListAtTop}
                   overscan={420}
                 />
