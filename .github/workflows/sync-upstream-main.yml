@@ -31,8 +31,18 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git remote add upstream "$UPSTREAM_REPO"
-          git fetch upstream main
-          git checkout main
-          git reset --hard upstream/main
-          git push origin main --force
+          if git remote get-url upstream >/dev/null 2>&1; then
+            git remote set-url upstream "$UPSTREAM_REPO"
+          else
+            git remote add upstream "$UPSTREAM_REPO"
+          fi
+
+          git fetch origin main:refs/remotes/origin/main
+          git fetch upstream main:refs/remotes/upstream/main
+
+          if git merge-base --is-ancestor origin/main upstream/main; then
+            git push origin upstream/main:main
+          else
+            echo "origin/main contains commits that are not in upstream/main; skipping automatic sync."
+            exit 1
+          fi
