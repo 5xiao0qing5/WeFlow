@@ -1,0 +1,38 @@
+name: Sync Upstream Main
+
+on:
+  schedule:
+    # GitHub Actions 使用 UTC；这里对应北京时间每天凌晨 4 点
+    - cron: '0 20 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-upstream-main
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Sync main from upstream
+        env:
+          UPSTREAM_REPO: https://github.com/hicccc77/WeFlow.git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git remote add upstream "$UPSTREAM_REPO"
+          git fetch upstream main
+          git checkout main
+          git reset --hard upstream/main
+          git push origin main --force
