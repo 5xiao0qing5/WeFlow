@@ -2,7 +2,6 @@
 import { existsSync, readdirSync, statSync, readFileSync, appendFileSync, mkdirSync } from 'fs'
 import { app } from 'electron'
 import { ConfigService } from './config'
-import Database from 'better-sqlite3'
 import { wcdbService } from './wcdbService'
 
 export interface VideoInfo {
@@ -71,58 +70,21 @@ class VideoService {
 
     /**
      * 从 video_hardlink_info_v4 表查询视频文件名
-     * 优先使用 cachePath 中解密后的 hardlink.db（使用 better-sqlite3）
-     * 如果失败，则尝试使用 wcdbService.execQuery 查询加密的 hardlink.db
+     * 使用 wcdbService.execQuery 查询加密的 hardlink.db
      */
     private async queryVideoFileName(md5: string): Promise<string | undefined> {
-        const cachePath = this.getCachePath()
         const dbPath = this.getDbPath()
         const wxid = this.getMyWxid()
         const cleanedWxid = this.cleanWxid(wxid)
 
-        this.log('queryVideoFileName 开始', { md5, wxid, cleanedWxid, cachePath, dbPath })
+        this.log('queryVideoFileName 开始', { md5, wxid, cleanedWxid, dbPath })
 
         if (!wxid) {
             this.log('queryVideoFileName: wxid 为空')
             return undefined
         }
 
-        // 方法1：优先在 cachePath 下查找解密后的 hardlink.db
-        if (cachePath) {
-            const cacheDbPaths = [
-                join(cachePath, cleanedWxid, 'hardlink.db'),
-                join(cachePath, wxid, 'hardlink.db'),
-                join(cachePath, 'hardlink.db'),
-                join(cachePath, 'databases', cleanedWxid, 'hardlink.db'),
-                join(cachePath, 'databases', wxid, 'hardlink.db')
-            ]
-
-            for (const p of cacheDbPaths) {
-                if (existsSync(p)) {
-                    try {
-                        this.log('尝试缓存 hardlink.db', { path: p })
-                        const db = new Database(p, { readonly: true })
-                        const row = db.prepare(`
-                            SELECT file_name, md5 FROM video_hardlink_info_v4
-                            WHERE md5 = ?
-                            LIMIT 1
-                        `).get(md5) as { file_name: string; md5: string } | undefined
-                        db.close()
-
-                        if (row?.file_name) {
-                            const realMd5 = row.file_name.replace(/\.[^.]+$/, '')
-                            this.log('缓存 hardlink.db 命中', { file_name: row.file_name, realMd5 })
-                            return realMd5
-                        }
-                        this.log('缓存 hardlink.db 未命中', { path: p })
-                    } catch (e) {
-                        this.log('缓存 hardlink.db 查询失败', { path: p, error: String(e) })
-                    }
-                }
-            }
-        }
-
-        // 方法2：使用 wcdbService.execQuery 查询加密的 hardlink.db
+        // 使用 wcdbService.execQuery 查询加密的 hardlink.db
         if (dbPath) {
             const dbPathLower = dbPath.toLowerCase()
             const wxidLower = wxid.toLowerCase()

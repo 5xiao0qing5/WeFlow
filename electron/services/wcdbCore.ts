@@ -731,6 +731,7 @@ export class WcdbCore {
       const initResult = this.wcdbInit()
       if (initResult !== 0) {
         console.error('WCDB 初始化失败:', initResult)
+        lastDllInitError = `初始化失败（错误码: ${initResult}）`
         return false
       }
 

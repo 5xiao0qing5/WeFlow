@@ -20,7 +20,6 @@
     "electron:build": "npm run build"
   },
   "dependencies": {
-    "better-sqlite3": "^12.5.0",
     "echarts": "^5.5.1",
     "echarts-for-react": "^3.0.2",
     "electron-store": "^10.0.0",
@@ -46,7 +45,6 @@
   },
   "devDependencies": {
     "@electron/rebuild": "^4.0.2",
-    "@types/better-sqlite3": "^7.6.13",
     "@types/react": "^19.1.0",
     "@types/react-dom": "^19.1.0",
     "@vitejs/plugin-react": "^4.3.4",
