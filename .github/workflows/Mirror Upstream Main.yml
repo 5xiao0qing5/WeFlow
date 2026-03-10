@@ -1,0 +1,49 @@
+name: Mirror Upstream Main
+
+on:
+  schedule:
+    - cron: '0 20 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: mirror-upstream-main
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Sync upstream main
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git remote add upstream https://github.com/hicccc77/WeFlow.git || true
+          git fetch upstream main
+
+          git checkout -B main origin/main
+          git merge upstream/main --no-edit
+
+          mkdir -p /tmp/keep-workflow
+          cp .github/workflows/*.yml /tmp/keep-workflow/ 2>/dev/null || true
+          cp .github/workflows/*.yaml /tmp/keep-workflow/ 2>/dev/null || true
+
+          git restore --source=HEAD --staged --worktree .github/workflows || true
+          mkdir -p .github/workflows
+          cp /tmp/keep-workflow/* .github/workflows/ 2>/dev/null || true
+
+          git add .github/workflows
+          git commit -m "Restore local workflows after upstream sync" || true
+
+          git push origin main
