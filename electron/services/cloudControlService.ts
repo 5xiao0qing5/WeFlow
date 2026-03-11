@@ -66,6 +66,10 @@ class CloudControlService {
       return `Windows ${release}`
     }
 
+    if (platform === 'darwin') {
+      return `macOS ${os.release()}`
+    }
+
     return platform
   }
 

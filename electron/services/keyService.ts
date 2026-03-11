@@ -12,6 +12,7 @@ type DbKeyResult = { success: boolean; key?: string; error?: string; logs?: stri
 type ImageKeyResult = { success: boolean; xorKey?: number; aesKey?: string; error?: string }
 
 export class KeyService {
+  private readonly isMac = process.platform === 'darwin'
   private koffi: any = null
   private lib: any = null
   private initialized = false

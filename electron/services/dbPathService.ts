@@ -16,8 +16,13 @@ export class DbPathService {
       const possiblePaths: string[] = []
       const home = homedir()
 
-      // 微信4.x 数据目录
-      possiblePaths.push(join(home, 'Documents', 'xwechat_files'))
+      // macOS 微信路径（固定）
+      if (process.platform === 'darwin') {
+        possiblePaths.push(join(home, 'Library', 'Containers', 'com.tencent.xinWeChat', 'Data', 'Documents', 'xwechat_files'))
+      } else {
+        // Windows 微信4.x 数据目录
+        possiblePaths.push(join(home, 'Documents', 'xwechat_files'))
+      }
 
 
       for (const path of possiblePaths) {
@@ -193,6 +198,9 @@ export class DbPathService {
    */
   getDefaultPath(): string {
     const home = homedir()
+    if (process.platform === 'darwin') {
+      return join(home, 'Library', 'Containers', 'com.tencent.xinWeChat', 'Data', 'Documents', 'xwechat_files')
+    }
     return join(home, 'Documents', 'xwechat_files')
   }
 }

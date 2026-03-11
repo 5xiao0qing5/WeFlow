@@ -2,6 +2,12 @@ import { useState, useEffect, useRef } from 'react'
 import { Loader2, Download, Image, Check, X, SlidersHorizontal } from 'lucide-react'
 import html2canvas from 'html2canvas'
 import { useThemeStore } from '../stores/themeStore'
+import {
+  finishBackgroundTask,
+  isBackgroundTaskCancelRequested,
+  registerBackgroundTask,
+  updateBackgroundTask
+} from '../services/backgroundTaskMonitor'
 import './AnnualReportWindow.scss'
 
 // SVG 背景图案 (用于导出)
@@ -127,12 +133,6 @@ function AnnualReportWindow() {
 
   const { currentTheme, themeMode } = useThemeStore()
 
-  // 应用主题到独立窗口
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', currentTheme)
-    document.documentElement.setAttribute('data-mode', themeMode)
-  }, [currentTheme, themeMode])
-
   // Section refs
   const sectionRefs = {
     cover: useRef<HTMLElement>(null),
@@ -164,6 +164,13 @@ function AnnualReportWindow() {
   }, [])
 
   const generateReport = async (year: number) => {
+    const taskId = registerBackgroundTask({
+      sourcePage: 'annualReport',
+      title: '年度报告生成',
+      detail: `正在生成 ${formatYearLabel(year)} 年度报告`,
+      progressText: '初始化',
+      cancelable: true
+    })
     setIsLoading(true)
     setError(null)
     setLoadingProgress(0)
@@ -171,25 +178,46 @@ function AnnualReportWindow() {
     const removeProgressListener = window.electronAPI.annualReport.onProgress?.((payload: { status: string; progress: number }) => {
       setLoadingProgress(payload.progress)
       setLoadingStage(payload.status)
+      updateBackgroundTask(taskId, {
+        detail: payload.status || '正在生成年度报告',
+        progressText: `${Math.max(0, Math.round(payload.progress || 0))}%`
+      })
     })
 
     try {
       const result = await window.electronAPI.annualReport.generateReport(year)
       removeProgressListener?.()
+      if (isBackgroundTaskCancelRequested(taskId)) {
+        finishBackgroundTask(taskId, 'canceled', {
+          detail: '已停止后续加载，当前报告结果未继续写入页面'
+        })
+        setIsLoading(false)
+        return
+      }
       setLoadingProgress(100)
       setLoadingStage('完成')
 
       if (result.success && result.data) {
+        finishBackgroundTask(taskId, 'completed', {
+          detail: '年度报告生成完成',
+          progressText: '100%'
+        })
         setTimeout(() => {
           setReportData(result.data!)
           setIsLoading(false)
         }, 300)
       } else {
+        finishBackgroundTask(taskId, 'failed', {
+          detail: result.error || '生成年度报告失败'
+        })
         setError(result.error || '生成报告失败')
         setIsLoading(false)
       }
     } catch (e) {
       removeProgressListener?.()
+      finishBackgroundTask(taskId, 'failed', {
+        detail: String(e)
+      })
       setError(String(e))
       setIsLoading(false)
     }

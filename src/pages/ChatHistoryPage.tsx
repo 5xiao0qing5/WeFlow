@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useLocation } from 'react-router-dom'
 import { ChatRecordItem } from '../types/models'
 import TitleBar from '../components/TitleBar'
+import { ErrorBoundary } from '../components/ErrorBoundary'
 import './ChatHistoryPage.scss'
 
 export default function ChatHistoryPage() {
@@ -166,7 +167,9 @@ export default function ChatHistoryPage() {
           <div className="status-msg empty">暂无可显示的聊天记录</div>
         ) : (
           recordList.map((item, i) => (
-            <HistoryItem key={i} item={item} />
+            <ErrorBoundary key={i} fallback={<div className="history-item error-item">消息解析失败</div>}>
+              <HistoryItem item={item} />
+            </ErrorBoundary>
           ))
         )}
       </div>
@@ -175,6 +178,8 @@ export default function ChatHistoryPage() {
 }
 
 function HistoryItem({ item }: { item: ChatRecordItem }) {
+  const [imageError, setImageError] = useState(false)
+  
   // sourcetime 在合并转发里有两种格式：
   // 1) 时间戳（秒） 2) 已格式化的字符串 "2026-01-21 09:56:46"
   let time = ''
@@ -197,19 +202,16 @@ function HistoryItem({ item }: { item: ChatRecordItem }) {
       if (src) {
         return (
           <div className="media-content">
-            <img 
-              src={src} 
-              alt="图片" 
-              referrerPolicy="no-referrer" 
-              onError={(e) => {
-                const target = e.target as HTMLImageElement
-                target.style.display = 'none'
-                const placeholder = document.createElement('div')
-                placeholder.className = 'media-tip'
-                placeholder.textContent = '图片无法加载'
-                target.parentElement?.appendChild(placeholder)
-              }} 
-            />
+            {imageError ? (
+              <div className="media-tip">图片无法加载</div>
+            ) : (
+              <img 
+                src={src} 
+                alt="图片" 
+                referrerPolicy="no-referrer" 
+                onError={() => setImageError(true)} 
+              />
+            )}
           </div>
         )
       }
