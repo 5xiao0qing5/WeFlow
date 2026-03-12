@@ -148,13 +148,8 @@ export class WcdbCore {
     }
   }
 
-  // 使用命名管道 IPC (仅 Windows)
+  // 使用命名管道/socket IPC (Windows: Named Pipe, macOS: Unix Socket)
   startMonitor(callback: (type: string, json: string) => void): boolean {
-    if (process.platform !== 'win32') {
-      console.warn('[wcdbCore] Monitor not supported on macOS')
-      return false
-    }
-    
     if (!this.wcdbStartMonitorPipe) {
       return false
     }
