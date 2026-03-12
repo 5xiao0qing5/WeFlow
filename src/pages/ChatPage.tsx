@@ -3485,20 +3485,17 @@ function ChatPage(props: ChatPageProps) {
     }
 
     // 并发池：同时跑 concurrency 个任务
-    const pool: Promise<void>[] = []
+    const pool = new Set<Promise<void>>()
     for (const img of images) {
-      const p = decryptOne(img)
-      pool.push(p)
-      if (pool.length >= concurrency) {
+      const p = decryptOne(img).then(() => { pool.delete(p) })
+      pool.add(p)
+      if (pool.size >= concurrency) {
         await Promise.race(pool)
-        // 移除已完成的
-        for (let j = pool.length - 1; j >= 0; j--) {
-          const settled = await Promise.race([pool[j].then(() => true), Promise.resolve(false)])
-          if (settled) pool.splice(j, 1)
-        }
       }
     }
-    await Promise.all(pool)
+    if (pool.size > 0) {
+      await Promise.all(pool)
+    }
 
     finishDecrypt(successCount, failCount)
   }, [batchImageMessages, batchImageSelectedDates, batchDecryptConcurrency, currentSessionId, finishDecrypt, sessions, startDecrypt, updateDecryptProgress])
