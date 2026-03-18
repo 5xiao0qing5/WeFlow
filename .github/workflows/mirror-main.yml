@@ -1,4 +1,4 @@
-name: Mirror Upstream Main
+name: Sync upstream main but keep fork workflows
 
 on:
   schedule:
@@ -9,21 +9,21 @@ permissions:
   contents: write
 
 concurrency:
-  group: mirror-upstream-main
+  group: sync-main-without-workflows
   cancel-in-progress: false
 
 jobs:
-  mirror:
+  sync:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout dev branch (workflow lives here)
+      - name: Checkout dev (workflow branch)
         uses: actions/checkout@v4
         with:
           ref: dev
           fetch-depth: 0
 
-      - name: Mirror upstream main to fork main
+      - name: Prepare remotes
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -34,5 +34,30 @@ jobs:
             git remote add upstream https://github.com/hicccc77/WeFlow.git
           fi
 
+          git fetch origin main
           git fetch upstream main
-          git push origin refs/remotes/upstream/main:refs/heads/main --force
+
+      - name: Rebuild main from upstream but keep fork workflows
+        run: |
+          # 基于你 fork 当前 main 建一个临时分支
+          git checkout -B sync-main origin/main
+
+          # 先把整个工作区清成 upstream/main
+          git rm -r --ignore-unmatch .
+          git checkout upstream/main -- .
+
+          # 再把你 fork/main 里的 .github/workflows 恢复回来
+          mkdir -p .github
+          git checkout origin/main -- .github/workflows || true
+
+          # 提交变更（如果没有变化就跳过）
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "Sync upstream/main into main (keep fork workflows)"
+          fi
+
+      - name: Push to main
+        run: |
+          git push origin sync-main:main
