@@ -23,12 +23,17 @@ jobs:
           ref: dev
           fetch-depth: 0
 
-      - name: Mirror upstream main to fork main
+      - name: Prepare git
         env:
           MIRROR_PAT: ${{ secrets.MIRROR_PAT }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if [ -z "${MIRROR_PAT}" ]; then
+            echo "ERROR: MIRROR_PAT is empty"
+            exit 1
+          fi
 
           if git remote get-url upstream >/dev/null 2>&1; then
             git remote set-url upstream https://github.com/hicccc77/WeFlow.git
@@ -39,4 +44,10 @@ jobs:
           git fetch upstream main
 
           git remote set-url origin https://x-access-token:${MIRROR_PAT}@github.com/5xiao0qing5/WeFlow.git
+
+          echo "origin is now:"
+          git remote get-url origin
+
+      - name: Mirror upstream main to fork main
+        run: |
           git push origin refs/remotes/upstream/main:refs/heads/main --force
