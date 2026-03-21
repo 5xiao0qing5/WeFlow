@@ -1,4 +1,4 @@
-name: Sync upstream main but keep fork workflows
+name: Mirror Upstream Main
 
 on:
   schedule:
@@ -9,11 +9,11 @@ permissions:
   contents: write
 
 concurrency:
-  group: sync-main-without-workflows
+  group: mirror-upstream-main
   cancel-in-progress: false
 
 jobs:
-  sync:
+  mirror:
     runs-on: ubuntu-latest
 
     steps:
@@ -23,7 +23,9 @@ jobs:
           ref: dev
           fetch-depth: 0
 
-      - name: Prepare git
+      - name: Mirror upstream main to fork main
+        env:
+          MIRROR_PAT: ${{ secrets.MIRROR_PAT }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -34,59 +36,7 @@ jobs:
             git remote add upstream https://github.com/hicccc77/WeFlow.git
           fi
 
-          git fetch origin main
           git fetch upstream main
 
-      - name: Export upstream and current fork main
-        run: |
-          rm -rf /tmp/upstream-main /tmp/origin-main
-          mkdir -p /tmp/upstream-main /tmp/origin-main
-
-          git archive upstream/main | tar -x -C /tmp/upstream-main
-          git archive origin/main | tar -x -C /tmp/origin-main
-
-      - name: Rebuild sync-main without touching workflows
-        run: |
-          git checkout -B sync-main origin/main
-
-          # 清空工作区（保留 .git）
-          find . -mindepth 1 -maxdepth 1 \
-            ! -name .git \
-            ! -name .github \
-            -exec rm -rf {} +
-
-          mkdir -p .github
-
-          # 先同步 upstream 内容，但排除 .github/workflows
-          rsync -a --delete \
-            --exclude='.git' \
-            --exclude='.github/workflows' \
-            /tmp/upstream-main/ ./
-
-          # 恢复你 fork/main 自己的 workflows
-          if [ -d /tmp/origin-main/.github/workflows ]; then
-            mkdir -p .github/workflows
-            rsync -a /tmp/origin-main/.github/workflows/ .github/workflows/
-          fi
-
-          # 关键保险：强制让 workflows 与 origin/main 完全一致
-          git restore --source=origin/main --staged --worktree .github/workflows || true
-
-          git add -A
-
-          # 再做一次检查：不允许 workflows 有任何差异
-          if ! git diff --quiet origin/main -- .github/workflows; then
-            echo "ERROR: .github/workflows still changed"
-            git diff -- .github/workflows
-            exit 1
-          fi
-
-          if git diff --cached --quiet; then
-            echo "No changes to commit"
-          else
-            git commit -m "Sync upstream/main into main (keep fork workflows)"
-          fi
-
-      - name: Push main
-        run: |
-          git push origin sync-main:main
+          git remote set-url origin https://x-access-token:${MIRROR_PAT}@github.com/5xiao0qing5/WeFlow.git
+          git push origin refs/remotes/upstream/main:refs/heads/main --force
