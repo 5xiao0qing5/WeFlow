@@ -17,13 +17,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout dev (workflow branch)
+      - name: Checkout workflow branch
         uses: actions/checkout@v4
         with:
           ref: dev
           fetch-depth: 0
 
-      - name: Prepare remotes
+      - name: Prepare git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -37,27 +37,56 @@ jobs:
           git fetch origin main
           git fetch upstream main
 
-      - name: Rebuild main from upstream but keep fork workflows
+      - name: Export upstream and current fork main
         run: |
-          # 基于你 fork 当前 main 建一个临时分支
+          rm -rf /tmp/upstream-main /tmp/origin-main
+          mkdir -p /tmp/upstream-main /tmp/origin-main
+
+          git archive upstream/main | tar -x -C /tmp/upstream-main
+          git archive origin/main | tar -x -C /tmp/origin-main
+
+      - name: Rebuild sync-main without touching workflows
+        run: |
           git checkout -B sync-main origin/main
 
-          # 先把整个工作区清成 upstream/main
-          git rm -r --ignore-unmatch .
-          git checkout upstream/main -- .
+          # 清空工作区（保留 .git）
+          find . -mindepth 1 -maxdepth 1 \
+            ! -name .git \
+            ! -name .github \
+            -exec rm -rf {} +
 
-          # 再把你 fork/main 里的 .github/workflows 恢复回来
           mkdir -p .github
-          git checkout origin/main -- .github/workflows || true
 
-          # 提交变更（如果没有变化就跳过）
+          # 先同步 upstream 内容，但排除 .github/workflows
+          rsync -a --delete \
+            --exclude='.git' \
+            --exclude='.github/workflows' \
+            /tmp/upstream-main/ ./
+
+          # 恢复你 fork/main 自己的 workflows
+          if [ -d /tmp/origin-main/.github/workflows ]; then
+            mkdir -p .github/workflows
+            rsync -a /tmp/origin-main/.github/workflows/ .github/workflows/
+          fi
+
+          # 关键保险：强制让 workflows 与 origin/main 完全一致
+          git restore --source=origin/main --staged --worktree .github/workflows || true
+
           git add -A
+
+          # 再做一次检查：不允许 workflows 有任何差异
+          if ! git diff --quiet origin/main -- .github/workflows; then
+            echo "ERROR: .github/workflows still changed"
+            git diff -- .github/workflows
+            exit 1
+          fi
+
           if git diff --cached --quiet; then
             echo "No changes to commit"
           else
             git commit -m "Sync upstream/main into main (keep fork workflows)"
           fi
 
-      - name: Push to main
+      - name: Push main
         run: |
           git push origin sync-main:main
