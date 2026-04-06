@@ -864,16 +864,19 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
   }
 
   useEffect(() => {
-    if (activeTab !== 'antiRevoke') return
+    if (activeTab !== 'antiRevoke' && activeTab !== 'insight') return
     let canceled = false
     ;(async () => {
       try {
+        // 两个 Tab 都需要会话列表；antiRevoke 还需要额外检查防撤回状态
         const sessionIds = await ensureAntiRevokeSessionsLoaded()
         if (canceled) return
-        await handleRefreshAntiRevokeStatus(sessionIds)
+        if (activeTab === 'antiRevoke') {
+          await handleRefreshAntiRevokeStatus(sessionIds)
+        }
       } catch (e: any) {
         if (!canceled) {
-          showMessage(`加载防撤回会话失败: ${e?.message || String(e)}`, false)
+          showMessage(`加载会话失败: ${e?.message || String(e)}`, false)
         }
       }
     })()
@@ -1215,7 +1218,7 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
       if (result.success && result.aesKey) {
         if (typeof result.xorKey === 'number') setImageXorKey(`0x${result.xorKey.toString(16).toUpperCase().padStart(2, '0')}`)
         setImageAesKey(result.aesKey)
-        setImageKeyStatus('已获取图片密钥')
+        setImageKeyStatus('已获取图片��钥')
         showMessage('已自动获取图片密钥', true)
         const newXorKey = typeof result.xorKey === 'number' ? result.xorKey : 0
         const newAesKey = result.aesKey
@@ -3551,7 +3554,7 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
           <div className="updates-hero-main">
             <span className="updates-chip">当前版本</span>
             <h2>{appVersion || '...'}</h2>
-            <p>{updateInfo?.hasUpdate ? `发现新版本 v${updateInfo.version}` : '当前已是最新版本，可手动检查更新'}</p>
+            <p>{updateInfo?.hasUpdate ? `发现新版本 v${updateInfo.version}` : '当前已是最新版本，可手动检查更���'}</p>
           </div>
           <div className="updates-hero-action">
             {updateInfo?.hasUpdate ? (

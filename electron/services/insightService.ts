@@ -24,8 +24,11 @@ import { chatService, ChatSession, Message } from './chatService'
 
 // ─── 常量 ────────────────────────────────────────────────────────────────────
 
-/** DB 变更防抖延迟（毫秒） */
-const DB_CHANGE_DEBOUNCE_MS = 500
+/**
+ * DB 变更防抖延迟（毫秒）。
+ * 设为 2s：微信写库通常是批量操作，500ms 过短会在开机/重连时产生大量连续触发。
+ */
+const DB_CHANGE_DEBOUNCE_MS = 2000
 
 /** 首次沉默扫描延迟（毫秒），避免启动期间抢占资源 */
 const SILENCE_SCAN_INITIAL_DELAY_MS = 3 * 60 * 1000
@@ -208,6 +211,15 @@ class InsightService {
    */
   private lastSeenTimestamp: Map<string, number> = new Map()
 
+  /**
+   * 本地会话快照缓存，避免 analyzeRecentActivity 在每次 DB 变更时都做全量读取。
+   * 首次调用时填充，此后只在沉默扫描里刷新（沉默扫描间隔更长，更合适做全量刷新）。
+   */
+  private sessionCache: ChatSession[] | null = null
+  /** sessionCache 最后刷新时间戳（ms），超过 5 分钟强制重新拉取 */
+  private sessionCacheAt = 0
+  private static readonly SESSION_CACHE_TTL_MS = 5 * 60 * 1000
+
   private started = false
 
   constructor() {
@@ -230,7 +242,7 @@ class InsightService {
       this.dbDebounceTimer = null
     }
     if (this.silenceScanTimer !== null) {
-      clearInterval(this.silenceScanTimer)
+      clearTimeout(this.silenceScanTimer)
       this.silenceScanTimer = null
     }
     if (this.silenceInitialDelayTimer !== null) {
@@ -358,6 +370,29 @@ class InsightService {
     return whitelist.includes(sessionId)
   }
 
+  /**
+   * 获取会话列表，优先使用缓存（5 分钟 TTL）。
+   * 缓存命中时不访问 DB，显著减少对主线程的占用。
+   */
+  private async getSessionsCached(forceRefresh = false): Promise<ChatSession[]> {
+    const now = Date.now()
+    if (
+      !forceRefresh &&
+      this.sessionCache !== null &&
+      now - this.sessionCacheAt < InsightService.SESSION_CACHE_TTL_MS
+    ) {
+      return this.sessionCache
+    }
+    const connectResult = await chatService.connect()
+    if (!connectResult.success) return this.sessionCache ?? []
+    const result = await chatService.getSessions()
+    if (result.success && result.sessions) {
+      this.sessionCache = result.sessions as ChatSession[]
+      this.sessionCacheAt = now
+    }
+    return this.sessionCache ?? []
+  }
+
   private resetIfNewDay(): void {
     const todayStart = getStartOfDay()
     if (todayStart > this.todayDate) {
@@ -426,19 +461,13 @@ class InsightService {
 
       insightLog('INFO', `沉默阈值：${silenceDays} 天`)
 
-      const connectResult = await chatService.connect()
-      if (!connectResult.success) {
-        insightLog('WARN', '数据库连接失败，跳过沉默扫描')
+      // 沉默扫描间隔较长，强制刷新缓存以获取最新数据
+      const sessions = await this.getSessionsCached(true)
+      if (sessions.length === 0) {
+        insightLog('WARN', '获取会话列表失败，跳过沉默扫描')
         return
       }
 
-      const sessionsResult = await chatService.getSessions()
-      if (!sessionsResult.success || !sessionsResult.sessions) {
-        insightLog('WARN', '获取会话列表失败')
-        return
-      }
-
-      const sessions: ChatSession[] = sessionsResult.sessions
       insightLog('INFO', `共 ${sessions.length} 个会话，开始过滤...`)
 
       let silentCount = 0
@@ -489,19 +518,13 @@ class InsightService {
     this.processing = true
     insightLog('INFO', 'DB 变更防抖触发，开始活跃分析...')
     try {
-      const connectResult = await chatService.connect()
-      if (!connectResult.success) {
-        insightLog('WARN', '数据库连接失败，跳过活跃分析')
+      // 使用缓存版本，避免每次 DB 变更都做全量读取（5 分钟 TTL）
+      const sessions = await this.getSessionsCached()
+      if (sessions.length === 0) {
+        insightLog('WARN', '会话缓存为空，跳过活跃分析')
         return
       }
 
-      const sessionsResult = await chatService.getSessions()
-      if (!sessionsResult.success || !sessionsResult.sessions) {
-        insightLog('WARN', '获取会话列表失败')
-        return
-      }
-
-      const sessions: ChatSession[] = sessionsResult.sessions
       const now = Date.now()
 
       // 从 config 读取冷却分钟数（0 = 无冷却）
