@@ -7,6 +7,8 @@ const WEIBO_MAX_POSTS = 5
 const WEIBO_CACHE_TTL_MS = 30 * 60 * 1000
 const WEIBO_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/135.0.0.0 Safari/537.36'
+const WEIBO_MOBILE_USER_AGENT =
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1'
 
 interface BrowserCookieEntry {
   domain?: string
@@ -48,6 +50,18 @@ interface WeiboStatusShowResponse {
   retweeted_status?: WeiboWaterFallItem
 }
 
+interface MWeiboCard {
+  mblog?: WeiboWaterFallItem
+  card_group?: MWeiboCard[]
+}
+
+interface MWeiboContainerResponse {
+  ok?: number
+  data?: {
+    cards?: MWeiboCard[]
+  }
+}
+
 export interface WeiboRecentPost {
   id: string
   createdAt: string
@@ -61,7 +75,7 @@ interface CachedRecentPosts {
   posts: WeiboRecentPost[]
 }
 
-function requestJson<T>(url: string, options: { cookie: string; referer?: string }): Promise<T> {
+function requestJson<T>(url: string, options: { cookie?: string; referer?: string; userAgent?: string }): Promise<T> {
   return new Promise((resolve, reject) => {
     let urlObj: URL
     try {
@@ -71,19 +85,23 @@ function requestJson<T>(url: string, options: { cookie: string; referer?: string
       return
     }
 
+    const headers: Record<string, string> = {
+      Accept: 'application/json, text/plain, */*',
+      Referer: options.referer || 'https://weibo.com',
+      'User-Agent': options.userAgent || WEIBO_USER_AGENT,
+      'X-Requested-With': 'XMLHttpRequest'
+    }
+    if (options.cookie) {
+      headers.Cookie = options.cookie
+    }
+
     const req = https.request(
       {
         hostname: urlObj.hostname,
         port: urlObj.port || 443,
         path: urlObj.pathname + urlObj.search,
         method: 'GET',
-        headers: {
-          Accept: 'application/json, text/plain, */*',
-          Referer: options.referer || 'https://weibo.com',
-          'User-Agent': WEIBO_USER_AGENT,
-          'X-Requested-With': 'XMLHttpRequest',
-          Cookie: options.cookie
-        }
+        headers
       },
       (res) => {
         let raw = ''
@@ -232,10 +250,10 @@ class WeiboService {
   ): Promise<WeiboRecentPost[]> {
     const uid = normalizeWeiboUid(uidInput)
     const cookie = normalizeWeiboCookieInput(cookieInput)
-    if (!cookie) return []
+    const hasCookie = Boolean(cookie)
 
     const count = Math.max(1, Math.min(WEIBO_MAX_POSTS, Math.floor(Number(requestedCount) || 0)))
-    const cacheKey = buildCacheKey(uid, count, cookie)
+    const cacheKey = buildCacheKey(uid, count, hasCookie ? cookie : '__no_cookie_mobile__')
     const cached = this.recentPostsCache.get(cacheKey)
     const now = Date.now()
 
@@ -243,8 +261,9 @@ class WeiboService {
       return cached.posts
     }
 
-    const timeline = await this.fetchTimeline(uid, cookie)
-    const rawItems = Array.isArray(timeline.data?.list) ? timeline.data.list : []
+    const rawItems = hasCookie
+      ? (await this.fetchTimeline(uid, cookie)).data?.list || []
+      : await this.fetchMobileTimeline(uid)
     const posts: WeiboRecentPost[] = []
 
     for (const item of rawItems) {
@@ -254,7 +273,7 @@ class WeiboService {
       if (!id) continue
 
       let text = mergeRetweetText(item)
-      if (item.isLongText) {
+      if (item.isLongText && hasCookie) {
         try {
           const detail = await this.fetchDetail(id, cookie)
           text = mergeRetweetText(detail)
@@ -295,6 +314,37 @@ class WeiboService {
         throw new Error('微博时间线获取失败，请检查 Cookie 是否仍然有效')
       }
       return response
+    })
+  }
+
+  private fetchMobileTimeline(uid: string): Promise<WeiboWaterFallItem[]> {
+    const containerid = `107603${uid}`
+    return requestJson<MWeiboContainerResponse>(
+      `https://m.weibo.cn/api/container/getIndex?type=uid&value=${encodeURIComponent(uid)}&containerid=${encodeURIComponent(containerid)}`,
+      {
+        referer: `https://m.weibo.cn/u/${encodeURIComponent(uid)}`,
+        userAgent: WEIBO_MOBILE_USER_AGENT
+      }
+    ).then((response) => {
+      if (response.ok !== 1 || !Array.isArray(response.data?.cards)) {
+        throw new Error('微博时间线获取失败，请稍后重试')
+      }
+
+      const rows: WeiboWaterFallItem[] = []
+      for (const card of response.data.cards) {
+        if (card?.mblog) rows.push(card.mblog)
+        if (Array.isArray(card?.card_group)) {
+          for (const subCard of card.card_group) {
+            if (subCard?.mblog) rows.push(subCard.mblog)
+          }
+        }
+      }
+
+      if (rows.length === 0) {
+        throw new Error('该微博账号暂无可读取的近期公开内容')
+      }
+
+      return rows
     })
   }
 

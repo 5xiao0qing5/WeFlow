@@ -3220,7 +3220,7 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
         </div>
         {!hasWeiboCookieConfigured && (
           <span className="form-hint" style={{ marginTop: 8, display: 'block' }}>
-            未配置微博 Cookie 时，开启后也不会发送社交平台内容。
+            未配置微博 Cookie 时，也会尝试抓取微博公开内容；但可能因平台风控导致获取失败或内容较少。
           </span>
         )}
       </div>
@@ -4625,7 +4625,7 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
                 清空
               </button>
               <button className="btn btn-primary" onClick={() => { void handleCloseWeiboCookieModal() }} disabled={isSavingWeiboCookie}>
-                {isSavingWeiboCookie ? '保存中...' : '关闭'}
+                {isSavingWeiboCookie ? '保存中...' : '关闭并保存'}
               </button>
             </div>
           </div>

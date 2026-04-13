@@ -809,7 +809,7 @@ ${topMentionText}
     if (!allowSocialContext) return ''
 
     const rawCookie = String(this.config.get('aiInsightWeiboCookie') || '').trim()
-    if (!rawCookie) return ''
+    const hasCookie = rawCookie.length > 0
 
     const bindings =
       (this.config.get('aiInsightWeiboBindings') as Record<string, { uid?: string; screenName?: string }> | undefined) || {}
@@ -830,7 +830,10 @@ ${topMentionText}
         return `[微博 ${time}] ${text}`
       })
       insightLog('INFO', `已加载 ${lines.length} 条微博公开内容 (uid=${uid})`)
-      return `近期公开社交平台内容（实验性，来源：微博，最近 ${lines.length} 条）：\n${lines.join('\n')}`
+      const riskHint = hasCookie
+        ? ''
+        : '\n提示：未配置微博 Cookie，使用移动端公开接口抓取，可能因平台风控导致获取失败或内容较少。'
+      return `近期公开社交平台内容（来源：微博，最近 ${lines.length} 条）：\n${lines.join('\n')}${riskHint}`
     } catch (error) {
       insightLog('WARN', `拉取微博公开内容失败 (uid=${uid}): ${(error as Error).message}`)
       return ''
