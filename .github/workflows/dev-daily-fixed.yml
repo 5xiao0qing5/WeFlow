@@ -386,4 +386,4 @@ jobs:
           source .github/scripts/release-utils.sh
           RELEASE_REST_ID="$(wait_for_release_id "$REPO" "$TAG" 12 2)"
           settle_release_state "$REPO" "$RELEASE_REST_ID" "$TAG" 12 2
-          gh api "repos/$REPO/releases/tags/$TAG" --jq '{isDraft: .draft, isPrerelease: .prerelease, url: .html_url}'
+          print_release_state "$REPO" "$TAG"
