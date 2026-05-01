@@ -2178,6 +2178,10 @@ class ExportService {
    */
   private convertMessageType(localType: number, content: string): number {
     const normalized = this.normalizeAppMessageContent(content || '')
+    if (this.isReadableSystemMessage(localType, normalized)) {
+      return 80
+    }
+
     const xmlTypeRaw = this.extractAppMessageType(normalized)
     const xmlType = xmlTypeRaw ? Number.parseInt(xmlTypeRaw, 10) : null
     const looksLikeAppMessage = localType === 49 || normalized.includes('<appmsg') || normalized.includes('<msg>')
@@ -2199,6 +2203,12 @@ class ExportService {
       }
     }
     return MESSAGE_TYPE_MAP[localType] ?? 99 // 未知类型 -> OTHER
+  }
+
+  private isReadableSystemMessage(localType: number, content: string): boolean {
+    if (localType === 10000) return true
+    const normalized = this.normalizeAppMessageContent(content || '')
+    return /<sysmsg\b/i.test(this.stripSenderPrefix(normalized))
   }
 
   /**
@@ -2627,6 +2637,10 @@ class ExportService {
     emojiCaption?: string
   ): string {
     const safeContent = content || ''
+    const readableSystemText = this.extractReadableSystemMessageText(safeContent)
+    if (readableSystemText && this.isReadableSystemMessage(localType, safeContent)) {
+      return readableSystemText
+    }
 
     if (localType === 3) return '[图片]'
     if (localType === 1) return this.stripSenderPrefix(safeContent)
@@ -3075,6 +3089,18 @@ class ExportService {
       .trim() || '[系统消息]'
   }
 
+  private extractReadableSystemMessageText(content: string): string {
+    if (!content) return ''
+    const normalized = this.normalizeAppMessageContent(content)
+    const sysmsgMatch = /<sysmsg\b[^>]*>([\s\S]*?)<\/sysmsg>/i.exec(this.stripSenderPrefix(normalized))
+    const source = sysmsgMatch?.[1] || normalized
+    const text =
+      this.extractXmlValue(source, 'plain') ||
+      this.extractXmlValue(source, 'text') ||
+      ''
+    return this.stripSenderPrefix(text).replace(/\s+/g, ' ').trim()
+  }
+
   /**
    * 解析通话消息
    * 格式: <voipmsg type="VoIPBubbleMsg"><VoIPBubbleMsg><msg><![CDATA[...]]></msg><room_type>0/1</room_type>...</VoIPBubbleMsg></voipmsg>
@@ -3139,6 +3165,9 @@ class ExportService {
     // 检查 XML 中的 type 标签（支持大 localType 的情况）
     if (content) {
       const normalized = this.normalizeAppMessageContent(content)
+      if (this.isReadableSystemMessage(localType, normalized)) {
+        return '系统消息'
+      }
       const xmlType = this.extractAppMessageType(normalized)
 
       if (xmlType) {
@@ -3935,6 +3964,11 @@ class ExportService {
       return this.formatEmojiSemanticText(emojiCaption)
     }
     if (!content) return ''
+
+    const readableSystemText = this.extractReadableSystemMessageText(content)
+    if (readableSystemText && this.isReadableSystemMessage(localType, content)) {
+      return readableSystemText
+    }
 
     if (localType === 1) {
       return this.stripSenderPrefix(content)
@@ -6585,6 +6619,9 @@ class ExportService {
             msg.emojiCaption
           )
         }
+        if (this.isReadableSystemMessage(msg.localType, msg.content)) {
+          content = this.extractReadableSystemMessageText(msg.content) || content
+        }
 
         // 转账消息：追加 "谁转账给谁" 信息
         if (content && this.isTransferExportContent(content) && msg.content) {
@@ -7086,6 +7123,9 @@ class ExportService {
             msg.emojiCaption
           )
         }
+        if (this.isReadableSystemMessage(msg.localType, msg.content)) {
+          content = this.extractReadableSystemMessageText(msg.content) || content
+        }
 
         const quotedReplyDisplay = await this.resolveQuotedReplyDisplayWithNames({
           content: msg.content,
@@ -7141,7 +7181,7 @@ class ExportService {
           localId: allMessages.length + 1,
           createTime: msg.createTime,
           formattedTime: this.formatTimestamp(msg.createTime),
-          type: this.getMessageTypeName(msg.localType),
+          type: this.getMessageTypeName(msg.localType, msg.content),
           localType: msg.localType,
           content,
           isSend: msg.isSend ? 1 : 0,
@@ -8052,20 +8092,20 @@ class ExportService {
         worksheet.getCell(currentRow, 2).value = this.formatTimestamp(msg.createTime)
         if (useCompactColumns) {
           worksheet.getCell(currentRow, 3).value = senderRole
-          worksheet.getCell(currentRow, 4).value = this.getMessageTypeName(msg.localType)
+          worksheet.getCell(currentRow, 4).value = this.getMessageTypeName(msg.localType, msg.content)
         } else if (includeGroupNicknameColumn) {
           worksheet.getCell(currentRow, 3).value = senderNickname
           worksheet.getCell(currentRow, 4).value = senderWxid
           worksheet.getCell(currentRow, 5).value = senderRemark
           worksheet.getCell(currentRow, 6).value = senderGroupNickname
           worksheet.getCell(currentRow, 7).value = senderRole
-          worksheet.getCell(currentRow, 8).value = this.getMessageTypeName(msg.localType)
+          worksheet.getCell(currentRow, 8).value = this.getMessageTypeName(msg.localType, msg.content)
         } else {
           worksheet.getCell(currentRow, 3).value = senderNickname
           worksheet.getCell(currentRow, 4).value = senderWxid
           worksheet.getCell(currentRow, 5).value = senderRemark
           worksheet.getCell(currentRow, 6).value = senderRole
-          worksheet.getCell(currentRow, 7).value = this.getMessageTypeName(msg.localType)
+          worksheet.getCell(currentRow, 7).value = this.getMessageTypeName(msg.localType, msg.content)
         }
         contentCell.value = enrichedContentValue
         if (!quotedReplyDisplay) {
@@ -8338,7 +8378,7 @@ class ExportService {
             i + 1,
             this.formatTimestamp(msg.createTime),
             senderRole,
-            this.getMessageTypeName(msg.localType),
+            this.getMessageTypeName(msg.localType, msg.content),
             enrichedContentValue
           ]
           : includeGroupNicknameColumn
@@ -8350,7 +8390,7 @@ class ExportService {
               senderRemark,
               senderGroupNickname,
               senderRole,
-              this.getMessageTypeName(msg.localType),
+              this.getMessageTypeName(msg.localType, msg.content),
               enrichedContentValue
             ]
             : [
@@ -8360,7 +8400,7 @@ class ExportService {
               senderWxid,
               senderRemark,
               senderRole,
-              this.getMessageTypeName(msg.localType),
+              this.getMessageTypeName(msg.localType, msg.content),
               enrichedContentValue
             ])
         if (!quotedReplyDisplay) {
@@ -9635,7 +9675,7 @@ class ExportService {
         const avatarHtml = getAvatarHtml(isSenderMe ? cleanedMyWxid : msg.senderUsername, resolvedSenderName)
 
         const timeText = this.formatTimestamp(msg.createTime)
-        const typeName = this.getMessageTypeName(msg.localType)
+        const typeName = this.getMessageTypeName(msg.localType, msg.content)
         const quotedReplyDisplay = await this.resolveQuotedReplyDisplayWithNames({
           content: msg.content,
           isGroup,

@@ -6652,15 +6652,33 @@ class ChatService {
   }
 
   private cleanSystemMessage(content: string): string {
+    if (!content) return '[系统消息]'
+
+    const normalized = this.cleanUtf16(this.decodeHtmlEntities(String(content)))
+    const readableSysmsg = this.extractReadableSystemMessageText(normalized)
+    if (readableSysmsg) {
+      return readableSysmsg
+    }
+
     // 移除 XML 声明
-    let cleaned = content.replace(/<\?xml[^?]*\?>/gi, '')
+    let cleaned = normalized.replace(/<\?xml[^?]*\?>/gi, '')
     // 移除所有 XML/HTML 标签
     cleaned = cleaned.replace(/<[^>]+>/g, '')
     // 移除尾部的数字（如撤回消息后的时间戳）
     cleaned = cleaned.replace(/\d+\s*$/, '')
     // 清理多余空白
-    cleaned = cleaned.replace(/\s+/g, ' ').trim()
+    cleaned = this.stripSenderPrefix(cleaned).replace(/\s+/g, ' ').trim()
     return cleaned || '[系统消息]'
+  }
+
+  private extractReadableSystemMessageText(content: string): string {
+    const sysmsgMatch = /<sysmsg\b[^>]*>([\s\S]*?)<\/sysmsg>/i.exec(content)
+    const source = sysmsgMatch?.[1] || content
+    const text =
+      this.extractXmlValue(source, 'plain') ||
+      this.extractXmlValue(source, 'text') ||
+      ''
+    return this.stripSenderPrefix(text).replace(/\s+/g, ' ').trim()
   }
 
   private stripSenderPrefix(content: string): string {
