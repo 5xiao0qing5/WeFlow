@@ -10041,10 +10041,30 @@ function MessageBubble({
             return <span className="quoted-type-label">[动画表情]</span>
           }
 
+          // 链接类消息：需区分真正的链接和嵌套引用
+          // 当一个引用了别的消息的消息被引用（B引用A，C又引用B），那么 B 在 C 的 refermsg 里 type=49
+          // 与此同时，一个链接的 type 也是 49，这可能意味着 49 是一个更高级别的分类
+          // 因此，不能将 type=49 的引用信息一律视为链接，它也可能是嵌套引用。那么怎么区分呢？
+          // 答：嵌套引用的 referContent 中 xmlType=57，真正的链接 xmlType=49 或 5
+          // 对于更多层的嵌套引用，微信不会保存所有层的信息，因此和两层的情况差不多
+          // 注意：需从原始 XML 获取 refermsg > content，而非后端处理过的 quotedContent
+          if (referType === '49') {
+            try {
+              const rawReferContent = q('refermsg > content') || ''
+              const innerDoc = new DOMParser().parseFromString(rawReferContent, 'text/xml')
+              const innerXmlType = innerDoc.querySelector('appmsg > type')?.textContent?.trim()
+              if (innerXmlType === '57') {
+                const innerTitle = innerDoc.querySelector('title')?.textContent?.trim() || ''
+                if (innerTitle) return <>{renderTextWithEmoji(cleanMessageContent(innerTitle))}</>
+              }
+            } catch { /* 解析失败降级 */ }
+            return <span className="quoted-type-label">[链接]</span>
+          }
+
           // 各类型名称映射
           const typeLabels: Record<string, string> = {
             '3': '图片', '34': '语音', '43': '视频',
-            '49': '链接', '50': '通话', '10000': '系统消息', '10002': '撤回消息',
+            '50': '通话', '10000': '系统消息', '10002': '撤回消息',
           }
           if (referType && typeLabels[referType]) {
             return <span className="quoted-type-label">[{typeLabels[referType]}]</span>
@@ -10417,9 +10437,29 @@ function MessageBubble({
             } catch { /* 解析失败降级 */ }
             return <span className="quoted-type-label">[动画表情]</span>
           }
+          // 链接类消息：需区分真正的链接和嵌套引用
+          // 当一个引用了别的消息的消息被引用（B引用A，C又引用B），那么 B 在 C 的 refermsg 里 type=49
+          // 与此同时，一个链接的 type 也是 49，这可能意味着 49 是一个更高级别的分类
+          // 因此，不能将 type=49 的引用信息一律视为链接，它也可能是嵌套引用。那么怎么区分呢？
+          // 答：嵌套引用的 referContent 中 xmlType=57，真正的链接 xmlType=49 或 5
+          // 对于更多层的嵌套引用，微信不会保存所有层的信息，因此和两层的情况差不多
+          // 注意：需从原始 XML 获取 refermsg > content，而非后端处理过的 quotedContent
+          if (referType === '49') {
+            try {
+              const rawReferContent = parsedDoc?.querySelector('refermsg > content')?.textContent?.trim() || ''
+              const innerDoc = new DOMParser().parseFromString(rawReferContent, 'text/xml')
+              const innerXmlType = innerDoc.querySelector('appmsg > type')?.textContent?.trim()
+              if (innerXmlType === '57') {
+                const innerTitle = innerDoc.querySelector('title')?.textContent?.trim() || ''
+                if (innerTitle) return <>{renderTextWithEmoji(cleanMessageContent(innerTitle))}</>
+              }
+            } catch { /* 解析失败降级 */ }
+            return <span className="quoted-type-label">[链接]</span>
+          }
+          // 各类型名称映射
           const typeLabels: Record<string, string> = {
             '3': '图片', '34': '语音', '43': '视频',
-            '49': '链接', '50': '通话', '10000': '系统消息', '10002': '撤回消息',
+            '50': '通话', '10000': '系统消息', '10002': '撤回消息',
           }
           if (referType && typeLabels[referType]) {
             return <span className="quoted-type-label">[{typeLabels[referType]}]</span>
