@@ -5702,9 +5702,18 @@ class ChatService {
         case '47':
           displayContent = '[动画表情]'
           break
-        case '49':
-          displayContent = '[链接]'
+        case '49': {
+          // 链接类消息 (type=49)：需区分真正的链接和嵌套引用
+          // 嵌套引用的 referContent 中 xmlType=57，真正的链接 xmlType=49 或 5
+          const decodedReferContent = this.decodeHtmlEntities(referContent || '')
+          const innerInfo = this.parseType49Message(decodedReferContent)
+          if (innerInfo.xmlType === '57' && innerInfo.linkTitle) {
+            displayContent = innerInfo.linkTitle
+          } else {
+            displayContent = '[链接]'
+          }
           break
+        }
         case '42':
           displayContent = '[名片]'
           break
