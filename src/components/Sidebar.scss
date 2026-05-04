@@ -1,13 +1,14 @@
-// ChatGPT-style sidebar
+// Redesigned sidebar — premium feel with left accent bar, refined spacing
 .sidebar {
   width: var(--sidebar-width, 260px);
   background: var(--bg-sidebar, var(--bg-secondary));
   display: flex;
   flex-direction: column;
-  padding: 8px 0;
-  transition: width 0.2s ease;
+  padding: 0;
+  transition: width 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   flex-shrink: 0;
   overflow: hidden;
+  border-right: 1px solid var(--border-color);
 
   &.collapsed {
     width: 68px;
@@ -23,14 +24,26 @@
       .user-meta {
         display: none;
       }
+
+      .user-menu-caret {
+        display: none;
+      }
     }
 
-    .nav-menu,
-    .sidebar-footer {
+    .nav-menu {
       padding: 0 8px;
     }
 
+    .sidebar-footer {
+      padding: 0 8px;
+      padding-top: 8px;
+    }
+
     .nav-label {
+      display: none;
+    }
+
+    .nav-badge:not(.icon-badge) {
       display: none;
     }
 
@@ -38,6 +51,10 @@
       justify-content: center;
       padding: 10px;
       gap: 0;
+
+      &::before {
+        display: none;
+      }
     }
   }
 }
@@ -47,18 +64,19 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  padding: 0 12px;
+  gap: 1px;
+  padding: 12px 10px;
   overflow-y: auto;
   overflow-x: hidden;
 }
 
 .nav-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 12px;
-  border-radius: 8px;
+  padding: 9px 14px;
+  border-radius: 10px;
   color: var(--text-secondary);
   text-decoration: none;
   transition: background 0.15s ease, color 0.15s ease;
@@ -68,6 +86,21 @@
   cursor: pointer;
   font-family: inherit;
   font-size: 14px;
+  margin: 1px 0;
+
+  // Left accent bar for active state
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%) scaleY(0);
+    width: 3px;
+    height: 16px;
+    border-radius: 0 2px 2px 0;
+    background: var(--primary);
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  }
 
   &:hover {
     background: var(--bg-hover);
@@ -78,6 +111,14 @@
     background: var(--bg-hover);
     color: var(--text-primary);
     font-weight: 600;
+
+    &::before {
+      transform: translateY(-50%) scaleY(1);
+    }
+
+    .nav-icon {
+      color: var(--primary);
+    }
   }
 }
 
@@ -88,6 +129,7 @@
   width: 20px;
   height: 20px;
   flex-shrink: 0;
+  transition: color 0.15s ease;
 }
 
 .nav-icon-with-badge {
@@ -129,19 +171,19 @@
 
 // ---- Footer ----
 .sidebar-footer {
-  padding: 0 12px;
+  padding: 4px 10px;
   border-top: 1px solid var(--border-color);
   padding-top: 8px;
   margin-top: 4px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 // ---- User card ----
 .sidebar-user-card-wrap {
   position: relative;
-  margin: 0 12px 8px;
+  margin: 0 10px 10px;
   --sidebar-user-menu-width: 172px;
 }
 
@@ -153,7 +195,7 @@
   width: max(100%, var(--sidebar-user-menu-width));
   z-index: 12;
   border: 1px solid var(--border-color);
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--bg-secondary-solid, var(--bg-secondary));
   display: flex;
   flex-direction: column;
@@ -203,7 +245,7 @@
 
 .sidebar-user-card {
   width: 100%;
-  padding: 10px;
+  padding: 10px 12px;
   border-radius: 10px;
   background: transparent;
   display: flex;
@@ -223,8 +265,8 @@
   }
 
   .user-avatar {
-    width: 32px;
-    height: 32px;
+    width: 34px;
+    height: 34px;
     border-radius: 50%;
     overflow: hidden;
     background: var(--primary);
@@ -232,6 +274,7 @@
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    box-shadow: 0 0 0 2px var(--bg-sidebar, var(--bg-secondary));
 
     img {
       width: 100%;

@@ -30,7 +30,7 @@ import AccountManagementPage from './pages/AccountManagementPage'
 import BackupPage from './pages/BackupPage'
 
 import { useAppStore } from './stores/appStore'
-import { useThemeStore, type ThemeMode } from './stores/themeStore'
+import { themes, useThemeStore, type ThemeId, type ThemeMode } from './stores/themeStore'
 import * as configService from './services/config'
 import * as cloudControl from './services/cloudControl'
 import { Download, X, Shield } from 'lucide-react'
@@ -74,7 +74,7 @@ function App() {
     setLocked
   } = useAppStore()
 
-  const { themeMode, setThemeMode } = useThemeStore()
+  const { currentTheme, themeMode, setTheme, setThemeMode } = useThemeStore()
   const isAgreementWindow = location.pathname === '/agreement-window'
   const isOnboardingWindow = location.pathname === '/onboarding-window'
   const isVideoPlayerWindow = location.pathname === '/video-player-window'
@@ -149,11 +149,12 @@ function App() {
     }
   }, [isOnboardingWindow, isNotificationWindow, isAnnualReportWindow, isDualReportWindow])
 
-  // 应用主题模式 (light / dark / system)
+  // 应用主题 (accent color + light/dark mode)
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
     const applyMode = (mode: ThemeMode, systemDark?: boolean) => {
       const effectiveMode = mode === 'system' ? (systemDark ?? mq.matches ? 'dark' : 'light') : mode
+      document.documentElement.setAttribute('data-theme', currentTheme)
       document.documentElement.setAttribute('data-mode', effectiveMode)
     }
 
@@ -167,13 +168,19 @@ function App() {
     }
     mq.addEventListener('change', handler)
     return () => mq.removeEventListener('change', handler)
-  }, [themeMode, isOnboardingWindow, isNotificationWindow, isAnnualReportWindow, isDualReportWindow])
+  }, [currentTheme, themeMode, isOnboardingWindow, isNotificationWindow, isAnnualReportWindow, isDualReportWindow])
 
   // 读取已保存的主题设置
   useEffect(() => {
     const loadTheme = async () => {
       try {
-        const savedThemeMode = await configService.getTheme()
+        const [savedThemeId, savedThemeMode] = await Promise.all([
+          configService.getThemeId(),
+          configService.getTheme()
+        ])
+        if (savedThemeId && themes.some((theme) => theme.id === savedThemeId)) {
+          setTheme(savedThemeId as ThemeId)
+        }
         if (savedThemeMode === 'light' || savedThemeMode === 'dark' || savedThemeMode === 'system') {
           setThemeMode(savedThemeMode)
         }
@@ -184,20 +191,23 @@ function App() {
       }
     }
     loadTheme()
-  }, [setThemeMode])
+  }, [setTheme, setThemeMode])
 
   // 保存主题设置
   useEffect(() => {
     if (!themeHydrated) return
     const saveTheme = async () => {
       try {
-        await configService.setTheme(themeMode)
+        await Promise.all([
+          configService.setThemeId(currentTheme),
+          configService.setTheme(themeMode)
+        ])
       } catch (e) {
         console.error('保存主题配置失败:', e)
       }
     }
     saveTheme()
-  }, [themeMode, themeHydrated])
+  }, [currentTheme, themeMode, themeHydrated])
 
   // 检查是否已同意协议
   useEffect(() => {
