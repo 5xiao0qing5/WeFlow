@@ -9427,8 +9427,14 @@ function MessageBubble({
     appMsgTextCache.set(selector, value)
     return value
   }, [appMsgDoc, appMsgTextCache])
+  const decodeHtmlEntities = useCallback((text: string): string => {
+    const textarea = document.createElement('textarea')
+    textarea.innerHTML = text
+    return textarea.value
+  }, [])
+
   const queryPreferredQuotedContent = useCallback((): string => {
-    if (message.quotedContent) return message.quotedContent
+    if (message.quotedContent) return decodeHtmlEntities(message.quotedContent)
     const candidates = [
       'refermsg > selectedcontent',
       'refermsg > selectedtext',
@@ -9445,10 +9451,10 @@ function MessageBubble({
     ]
     for (const selector of candidates) {
       const value = queryAppMsgText(selector)
-      if (value) return value
+      if (value) return decodeHtmlEntities(value)
     }
     return ''
-  }, [message.quotedContent, queryAppMsgText])
+  }, [message.quotedContent, queryAppMsgText, decodeHtmlEntities])
   const appMsgThumbRawCandidate = useMemo(() => (
     message.linkThumb ||
     message.appMsgThumbUrl ||
