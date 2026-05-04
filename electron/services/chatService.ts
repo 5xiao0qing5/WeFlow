@@ -344,6 +344,7 @@ const FRIEND_EXCLUDE_USERNAMES = new Set(['medianote', 'floatbottle', 'qmessage'
 
 class ChatService {
   private configService: ConfigService
+  private runtimeConfig?: { dbPath?: string; decryptKey?: string; myWxid?: string }
   private connected = false
   private readonly dbMonitorListeners = new Set<(type: string, json: string) => void>()
   private messageCursors: Map<string, { cursor: number; fetched: number; batchSize: number; startTime?: number; endTime?: number; ascending?: boolean; bufferedMessages?: any[] }> = new Map()
@@ -452,6 +453,10 @@ class ChatService {
     this.voiceTranscriptCache = new LRUCache(1000) // 最多缓存1000条转写记录
   }
 
+  setRuntimeConfig(config: { dbPath?: string; decryptKey?: string; myWxid?: string }): void {
+    this.runtimeConfig = config
+  }
+
   /**
    * 清理账号目录名
    */
@@ -537,12 +542,9 @@ class ChatService {
    */
   async connect(): Promise<{ success: boolean; error?: string }> {
     try {
-      if (this.connected && wcdbService.isReady()) {
-        return { success: true }
-      }
-      const wxid = this.configService.get('myWxid')
-      const dbPath = this.configService.get('dbPath')
-      const decryptKey = this.configService.get('decryptKey')
+      const wxid = String(this.runtimeConfig?.myWxid || this.configService.get('myWxid') || '').trim()
+      const dbPath = String(this.runtimeConfig?.dbPath || this.configService.get('dbPath') || '').trim()
+      const decryptKey = String(this.runtimeConfig?.decryptKey || this.configService.get('decryptKey') || '').trim()
       if (!wxid) {
         return { success: false, error: '请先在设置页面配置微信ID' }
       }
@@ -551,6 +553,10 @@ class ChatService {
       }
       if (!decryptKey) {
         return { success: false, error: '请先在设置页面配置解密密钥' }
+      }
+
+      if (this.connected && wcdbService.isReady()) {
+        return { success: true }
       }
 
       // 使用 ConfigService 统一解析账号目录
