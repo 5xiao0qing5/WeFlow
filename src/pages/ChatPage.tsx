@@ -9687,7 +9687,7 @@ function MessageBubble({
   // 渲染消息内容
   const renderContent = () => {
     if (isImage) {
-      return (
+      const imageContent = (
         <div
           ref={imageContainerRef}
           className={`image-stage ${imageStageLockHeight ? 'locked' : ''}`}
@@ -9745,13 +9745,24 @@ function MessageBubble({
           )}
         </div>
       )
+
+      if (hasQuote) {
+        return renderBubbleWithQuote(
+          renderQuotedMessageBlock(renderTextWithEmoji(cleanMessageContent(quotedContent))),
+          imageContent
+        )
+      }
+
+      return <div className="bubble-content">{imageContent}</div>
     }
 
     // 视频消息
     if (isVideo) {
+      let videoContent: React.ReactNode
+
       // 未进入可视区域时显示占位符
       if (!isVideoVisible) {
-        return (
+        videoContent = (
           <div className="video-placeholder" ref={videoContainerRef as React.RefObject<HTMLDivElement>}>
             <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <polygon points="23 7 16 12 23 17 23 7"></polygon>
@@ -9759,20 +9770,16 @@ function MessageBubble({
             </svg>
           </div>
         )
-      }
-
-      // 加载中
-      if (videoLoading) {
-        return (
+      } else if (videoLoading) {
+        // 加载中
+        videoContent = (
           <div className="video-loading" ref={videoContainerRef as React.RefObject<HTMLDivElement>}>
             <Loader2 size={20} className="spin" />
           </div>
         )
-      }
-
-      // 视频不存在 - 添加点击重试功能
-      if (!videoInfo?.exists || !videoInfo.videoUrl) {
-        return (
+      } else if (!videoInfo?.exists || !videoInfo.videoUrl) {
+        // 视频不存在 - 添加点击重试功能
+        videoContent = (
           <button
             className={`video-unavailable ${videoClicked ? 'clicked' : ''}`}
             ref={videoContainerRef as React.RefObject<HTMLButtonElement>}
@@ -9792,27 +9799,36 @@ function MessageBubble({
             <span className="video-action">{videoClicked ? '已点击…' : '点击重试'}</span>
           </button>
         )
+      } else {
+        // 默认显示缩略图，点击打开独立播放窗口
+        const thumbSrc = videoInfo.thumbUrl || videoInfo.coverUrl
+        videoContent = (
+          <div className="video-thumb-wrapper" ref={videoContainerRef as React.RefObject<HTMLDivElement>} onClick={handlePlayVideo}>
+            {thumbSrc ? (
+              <img src={thumbSrc} alt="视频缩略图" className="video-thumb" loading="lazy" decoding="async" />
+            ) : (
+              <div className="video-thumb-placeholder">
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                  <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                </svg>
+              </div>
+            )}
+            <div className="video-play-button">
+              <Play size={32} fill="white" />
+            </div>
+          </div>
+        )
       }
 
-      // 默认显示缩略图，点击打开独立播放窗口
-      const thumbSrc = videoInfo.thumbUrl || videoInfo.coverUrl
-      return (
-          <div className="video-thumb-wrapper" ref={videoContainerRef as React.RefObject<HTMLDivElement>} onClick={handlePlayVideo}>
-          {thumbSrc ? (
-            <img src={thumbSrc} alt="视频缩略图" className="video-thumb" loading="lazy" decoding="async" />
-          ) : (
-            <div className="video-thumb-placeholder">
-              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polygon points="23 7 16 12 23 17 23 7"></polygon>
-                <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
-              </svg>
-            </div>
-          )}
-          <div className="video-play-button">
-            <Play size={32} fill="white" />
-          </div>
-        </div>
-      )
+      if (hasQuote) {
+        return renderBubbleWithQuote(
+          renderQuotedMessageBlock(renderTextWithEmoji(cleanMessageContent(quotedContent))),
+          videoContent
+        )
+      }
+
+      return <div className="bubble-content">{videoContent}</div>
     }
 
     if (isVoice) {
@@ -9900,7 +9916,7 @@ function MessageBubble({
         void requestVoiceTranscript()
       }
 
-      return (
+      const voiceContent = (
         <div className="voice-stack">
           <div className={`voice-message ${isVoicePlaying ? 'playing' : ''}`} onClick={handleToggle}>
             <button
@@ -9983,6 +9999,15 @@ function MessageBubble({
           )}
         </div>
       )
+
+      if (hasQuote) {
+        return renderBubbleWithQuote(
+          renderQuotedMessageBlock(renderTextWithEmoji(cleanMessageContent(quotedContent))),
+          voiceContent
+        )
+      }
+
+      return <div className="bubble-content">{voiceContent}</div>
     }
 
     // 名片消息

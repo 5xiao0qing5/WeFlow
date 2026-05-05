@@ -229,6 +229,13 @@ export class WcdbService {
     return this.callWorker('getMessageCount', { sessionId })
   }
 
+  /**
+   * 根据 server_id 查询单条消息
+   */
+  async getMessageByServerId(sessionId: string, svrid: string): Promise<{ success: boolean; row?: any; error?: string }> {
+    return this.callWorker('getMessageByServerId', { sessionId, svrid })
+  }
+
   async getMessageCounts(sessionIds: string[]): Promise<{ success: boolean; counts?: Record<string, number>; error?: string }> {
     return this.callWorker('getMessageCounts', { sessionIds })
   }

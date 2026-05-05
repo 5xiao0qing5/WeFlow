@@ -3536,7 +3536,49 @@ class ExportService {
     return result
   }
 
-  private parseQuoteMessage(content: string): { content?: string; sender?: string; type?: string } {
+  private async resolveQuotedMessagesForExport(messages: any[], sessionId: string): Promise<void> {
+    const svridsToResolve: Array<{ msg: any; svrid: string }> = []
+
+    for (const msg of messages) {
+      if (msg.replyToMessageId && msg.quotedContent === '[消息]') {
+        svridsToResolve.push({ msg, svrid: msg.replyToMessageId })
+      }
+    }
+
+    if (svridsToResolve.length === 0) return
+
+    const results = await Promise.allSettled(
+      svridsToResolve.map(({ svrid }) => wcdbService.getMessageByServerId(sessionId, svrid))
+    )
+
+    for (let i = 0; i < results.length; i++) {
+      const result = results[i]
+      const { msg } = svridsToResolve[i]
+
+      if (result.status === 'fulfilled' && result.value.success && result.value.row) {
+        const localType = parseInt(result.value.row.local_type || '0', 10)
+        const rawMessageContent = result.value.row.message_content
+        const rawCompressContent = result.value.row.compress_content
+        const content = chatService['decodeMessageContent'](rawMessageContent, rawCompressContent)
+
+        if (localType === 1) {
+          msg.quotedContent = chatService['sanitizeQuotedContent'](content)
+        } else if (localType === 3) {
+          msg.quotedContent = '[图片]'
+        } else if (localType === 34) {
+          msg.quotedContent = '[语音]'
+        } else if (localType === 43) {
+          msg.quotedContent = '[视频]'
+        } else if (localType === 47) {
+          msg.quotedContent = '[动画表情]'
+        } else if (localType === 49) {
+          msg.quotedContent = '[链接]'
+        }
+      }
+    }
+  }
+
+  private parseQuoteMessage(content: string): { content?: string; sender?: string; type?: string; svrid?: string } {
     try {
       const normalized = this.normalizeAppMessageContent(content || '')
       const referMsgStart = normalized.indexOf('<refermsg>')
@@ -3553,6 +3595,7 @@ class ExportService {
 
       const referContent = this.extractXmlValue(referMsgXml, 'content')
       const referType = this.extractXmlValue(referMsgXml, 'type')
+      const svrid = this.extractXmlValue(referMsgXml, 'svrid')
       let displayContent = referContent
 
       switch (referType) {
@@ -3775,6 +3818,7 @@ class ExportService {
       if (quoteInfo.content) meta.quotedContent = quoteInfo.content
       if (quoteInfo.sender) meta.quotedSender = quoteInfo.sender
       if (quoteInfo.type) meta.quotedType = quoteInfo.type
+      if (quoteInfo.svrid) meta.quotedSvrid = quoteInfo.svrid
     }
 
     if (appMsgKind === 'link') {
@@ -6935,6 +6979,9 @@ class ExportService {
 
       await this.hydrateEmojiCaptionsForMessages(sessionId, collected.rows, control)
 
+      // 解析引用消息
+      await this.resolveQuotedMessagesForExport(collected.rows, sessionId)
+
       const voiceMessages = options.exportVoiceAsText
         ? collected.rows.filter(msg => msg.localType === 34)
         : []
@@ -7139,7 +7186,8 @@ class ExportService {
           rawMyWxid,
           myDisplayName: myInfo.displayName || cleanedMyWxid
         })
-        if (quotedReplyDisplay) {
+        // 对于媒体消息，不要让引用信息覆盖媒体路径
+        if (quotedReplyDisplay && !mediaItem) {
           content = this.buildQuotedReplyText(quotedReplyDisplay)
         }
 
@@ -7673,6 +7721,9 @@ class ExportService {
       }
 
       await this.hydrateEmojiCaptionsForMessages(sessionId, collected.rows, control)
+
+      // 解析引用消息
+      await this.resolveQuotedMessagesForExport(collected.rows, sessionId)
 
       const voiceMessages = options.exportVoiceAsText
         ? collected.rows.filter(msg => msg.localType === 34)
@@ -8551,6 +8602,9 @@ class ExportService {
       }
 
       await this.hydrateEmojiCaptionsForMessages(sessionId, collected.rows, control)
+
+      // 解析引用消息
+      await this.resolveQuotedMessagesForExport(collected.rows, sessionId)
 
       const voiceMessages = options.exportVoiceAsText
         ? collected.rows.filter(msg => msg.localType === 34)

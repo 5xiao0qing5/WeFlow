@@ -38,6 +38,7 @@ export class WcdbCore {
   private wcdbMarkAllSessionsRead: any = null
   private wcdbGetMessages: any = null
   private wcdbGetMessageCount: any = null
+  private wcdbGetMessageByServerId: any = null
   private wcdbGetDisplayNames: any = null
   private wcdbGetAvatarUrls: any = null
   private wcdbGetGroupMemberCount: any = null
@@ -823,6 +824,9 @@ export class WcdbCore {
 
       // wcdb_status wcdb_get_message_count(wcdb_handle handle, const char* username, int32_t* out_count)
       this.wcdbGetMessageCount = this.lib.func('int32 wcdb_get_message_count(int64 handle, const char* username, _Out_ int32* outCount)')
+
+      // wcdb_status wcdb_get_message_by_svrid(wcdb_handle handle, const char* session_id, const char* svrid, char** out_json)
+      this.wcdbGetMessageByServerId = this.lib.func('int32 wcdb_get_message_by_svrid(int64 handle, const char* sessionId, const char* svrid, _Out_ void** outJson)')
 
       // wcdb_status wcdb_get_display_names(wcdb_handle handle, const char* usernames_json, char** out_json)
       this.wcdbGetDisplayNames = this.lib.func('int32 wcdb_get_display_names(int64 handle, const char* usernamesJson, _Out_ void** outJson)')
@@ -1802,6 +1806,30 @@ export class WcdbCore {
         return { success: false, error: `获取消息总数失败: ${result}` }
       }
       return { success: true, count: outCount[0] }
+    } catch (e) {
+      return { success: false, error: String(e) }
+    }
+  }
+
+  async getMessageByServerId(sessionId: string, svrid: string): Promise<{ success: boolean; row?: any; error?: string }> {
+    if (!this.ensureReady()) {
+      return { success: false, error: 'WCDB 未连接' }
+    }
+    try {
+      const outPtr = [null as any]
+      const result = this.wcdbGetMessageByServerId(this.handle, sessionId, svrid, outPtr)
+      if (result !== 0) {
+        return { success: false, error: `查询消息失败: ${result}` }
+      }
+      const jsonStr = this.decodeJsonPtr(outPtr[0])
+      if (!jsonStr) {
+        return { success: true, row: null }
+      }
+      const parsed = JSON.parse(jsonStr)
+      if (!parsed || Object.keys(parsed).length === 0) {
+        return { success: true, row: null }
+      }
+      return { success: true, row: parsed }
     } catch (e) {
       return { success: false, error: String(e) }
     }
