@@ -9,10 +9,10 @@ let linuxNotificationService:
   | null = null;
 
 // 用于处理通知点击的回调函数（在Linux上用于导航到会话）
-let onNotificationNavigate: ((sessionId: string) => void) | null = null;
+let onNotificationNavigate: ((payload: unknown) => void) | null = null;
 
 export function setNotificationNavigateHandler(
-  callback: (sessionId: string) => void,
+  callback: (payload: unknown) => void,
 ) {
   onNotificationNavigate = callback;
 }
@@ -184,6 +184,9 @@ async function showLinuxNotification(data: any) {
     content: data.content,
     avatarUrl: data.avatarUrl,
     sessionId: data.sessionId,
+    channel: data.channel,
+    insightRecordId: data.insightRecordId,
+    targetRoute: data.targetRoute,
     expireTimeout: 5000,
   };
 
@@ -257,14 +260,14 @@ export async function registerNotificationHandlers() {
       await linuxNotificationModule.initLinuxNotificationService();
 
       // 在Linux上注册通知点击回调
-      linuxNotificationModule.onNotificationAction((sessionId: string) => {
+      linuxNotificationModule.onNotificationAction((payload: unknown) => {
         console.log(
           "[NotificationWindow] Linux notification clicked, sessionId:",
-          sessionId,
+          payload,
         );
         // 如果设置了导航处理程序，则使用该处理程序；否则，回退到ipcMain方法。
         if (onNotificationNavigate) {
-          onNotificationNavigate(sessionId);
+          onNotificationNavigate(payload);
         } else {
           // 如果尚未设置处理程序，则通过ipcMain发出事件
           // 正常流程中不应该发生这种情况，因为我们在初始化之前设置了处理程序。

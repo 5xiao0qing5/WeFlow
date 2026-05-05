@@ -31,6 +31,7 @@ import { destroyNotificationWindow, registerNotificationHandlers, showNotificati
 import { httpService } from './services/httpService'
 import { messagePushService } from './services/messagePushService'
 import { insightService } from './services/insightService'
+import { insightRecordService } from './services/insightRecordService'
 import { normalizeWeiboCookieInput, weiboService } from './services/social/weiboService'
 import { bizService } from './services/bizService'
 import { backupService } from './services/backupService'
@@ -734,14 +735,41 @@ const focusMainWindowAndNavigate = (sessionId: string): void => {
   targetWindow.webContents.send('navigate-to-session', sessionId)
 }
 
+const focusMainWindowAndNavigateRoute = (route: string): void => {
+  const targetWindow = mainWindow
+  if (!targetWindow || targetWindow.isDestroyed()) return
+  if (targetWindow.isMinimized()) targetWindow.restore()
+  targetWindow.show()
+  targetWindow.focus()
+  targetWindow.webContents.send('navigate-to-route', route)
+}
+
+const handleNotificationClickNavigation = (payload: unknown): void => {
+  if (payload && typeof payload === 'object') {
+    const data = payload as { sessionId?: string; channel?: string; insightRecordId?: string; targetRoute?: string }
+    const targetRoute = String(data.targetRoute || '').trim()
+    if (targetRoute.startsWith('/')) {
+      focusMainWindowAndNavigateRoute(targetRoute)
+      return
+    }
+    if (data.channel === 'ai-insight' && data.insightRecordId) {
+      focusMainWindowAndNavigateRoute(`/insight-inbox?recordId=${encodeURIComponent(String(data.insightRecordId))}`)
+      return
+    }
+    focusMainWindowAndNavigate(String(data.sessionId || ''))
+    return
+  }
+  focusMainWindowAndNavigate(String(payload || ''))
+}
+
 const ensureNotificationNavigateHandlerRegistered = (): void => {
   if (notificationNavigateHandlerRegistered) return
   notificationNavigateHandlerRegistered = true
-  ipcMain.on('notification-clicked', (_event, sessionId) => {
-    focusMainWindowAndNavigate(String(sessionId || ''))
+  ipcMain.on('notification-clicked', (_event, payload) => {
+    handleNotificationClickNavigation(payload)
   })
-  setNotificationNavigateHandler((sessionId: string) => {
-    focusMainWindowAndNavigate(String(sessionId || ''))
+  setNotificationNavigateHandler((payload: unknown) => {
+    handleNotificationClickNavigation(payload)
   })
 }
 
@@ -1732,6 +1760,33 @@ function registerIpcHandlers() {
 
   ipcMain.handle('insight:getTodayStats', async () => {
     return insightService.getTodayStats()
+  })
+
+  ipcMain.handle('insight:listRecords', async (_, filters?: {
+    keyword?: string
+    sessionId?: string
+    startTime?: number
+    endTime?: number
+    limit?: number
+    offset?: number
+  }) => {
+    return insightRecordService.listRecords(filters || {})
+  })
+
+  ipcMain.handle('insight:getRecord', async (_, id: string) => {
+    return insightRecordService.getRecord(id)
+  })
+
+  ipcMain.handle('insight:markRecordRead', async (_, id: string) => {
+    return insightRecordService.markRecordRead(id)
+  })
+
+  ipcMain.handle('insight:clearRecords', async (_, filters?: {
+    sessionId?: string
+    startTime?: number
+    endTime?: number
+  }) => {
+    return insightRecordService.clearRecords(filters || {})
   })
 
   ipcMain.handle('insight:triggerTest', async () => {

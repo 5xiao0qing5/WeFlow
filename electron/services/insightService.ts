@@ -15,15 +15,13 @@
 
 import https from 'https'
 import http from 'http'
-import fs from 'fs'
-import path from 'path'
 import { URL } from 'url'
-import { app } from 'electron'
 import { ConfigService } from './config'
 import { chatService, ChatSession, Message } from './chatService'
 import { snsService } from './snsService'
 import { weiboService } from './social/weiboService'
 import { showNotification } from '../windows/notificationWindow'
+import { insightRecordService, type InsightRecordLog, type InsightRecordTriggerReason } from './insightRecordService'
 
 // ─── 常量 ────────────────────────────────────────────────────────────────────
 
@@ -87,60 +85,12 @@ type InsightFilterMode = 'whitelist' | 'blacklist'
 
 type InsightLogLevel = 'INFO' | 'WARN' | 'ERROR'
 
-let debugLogWriteQueue: Promise<void> = Promise.resolve()
-
-function formatDebugTimestamp(date: Date = new Date()): string {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  const seconds = String(date.getSeconds()).padStart(2, '0')
-  return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`
+function insightDebugLine(_level: InsightLogLevel, _message: string): void {
+  // Desktop debug log export has been replaced by per-insight request logs.
 }
 
-function getInsightDebugLogFilePath(date: Date = new Date()): string {
-  const year = date.getFullYear()
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return path.join(app.getPath('desktop'), `weflow-ai-insight-debug-${year}-${month}-${day}.log`)
-}
-
-function isInsightDebugLogEnabled(): boolean {
-  try {
-    return ConfigService.getInstance().get('aiInsightDebugLogEnabled') === true
-  } catch {
-    return false
-  }
-}
-
-function appendInsightDebugText(text: string): void {
-  if (!isInsightDebugLogEnabled()) return
-
-  let logFilePath = ''
-  try {
-    logFilePath = getInsightDebugLogFilePath()
-  } catch {
-    return
-  }
-
-  debugLogWriteQueue = debugLogWriteQueue
-    .then(() => fs.promises.appendFile(logFilePath, text, 'utf8'))
-    .catch(() => undefined)
-}
-
-function insightDebugLine(level: InsightLogLevel, message: string): void {
-  appendInsightDebugText(`[${formatDebugTimestamp()}] [${level}] ${message}\n`)
-}
-
-function insightDebugSection(level: InsightLogLevel, title: string, payload: unknown): void {
-  const content = typeof payload === 'string'
-    ? payload
-    : JSON.stringify(payload, null, 2)
-
-  appendInsightDebugText(
-    `\n========== [${formatDebugTimestamp()}] [${level}] ${title} ==========\n${content}\n========== END ==========\n`
-  )
+function insightDebugSection(_level: InsightLogLevel, _title: string, _payload: unknown): void {
+  // Desktop debug log export has been replaced by per-insight request logs.
 }
 
 /**
@@ -518,7 +468,7 @@ class InsightService {
       await this.generateInsightForSession({
         sessionId,
         displayName,
-        triggerReason: 'activity'
+        triggerReason: 'test'
       })
       const notificationEnabled = this.config.get('aiInsightNotificationEnabled') !== false
       return {
@@ -1147,7 +1097,7 @@ ${topMentionText}
   private async generateInsightForSession(params: {
     sessionId: string
     displayName: string
-    triggerReason: 'activity' | 'silence'
+    triggerReason: InsightRecordTriggerReason
     silentDays?: number
   }): Promise<void> {
     const { sessionId, displayName, triggerReason, silentDays } = params
@@ -1158,6 +1108,13 @@ ${topMentionText}
     const allowContext = this.config.get('aiInsightAllowContext') as boolean
     const contextCount = (this.config.get('aiInsightContextCount') as number) || 40
     const resolvedDisplayName = await this.resolveInsightSessionDisplayName(sessionId, displayName)
+    let resolvedAvatarUrl: string | undefined
+    try {
+      const contact = await chatService.getContactAvatar(sessionId)
+      resolvedAvatarUrl = String(contact?.avatarUrl || '').trim() || undefined
+    } catch {
+      resolvedAvatarUrl = undefined
+    }
 
     insightLog('INFO', `generateInsightForSession: sessionId=${sessionId}, reason=${triggerReason}, contextCount=${contextCount}, api=${apiBaseUrl ? '已配置' : '未配置'}`)
 
@@ -1236,6 +1193,7 @@ ${topMentionText}
     )
 
     try {
+      const apiStartedAt = Date.now()
       const result = await callApi(
         apiBaseUrl,
         apiKey,
@@ -1244,6 +1202,7 @@ ${topMentionText}
         API_TIMEOUT_MS,
         maxTokens
       )
+      const apiDurationMs = Date.now() - apiStartedAt
 
       insightLog('INFO', `API 返回原文: ${result.slice(0, 150)}`)
       insightDebugSection('INFO', `AI 输出原文 ${resolvedDisplayName} (${sessionId})`, result)
@@ -1257,6 +1216,29 @@ ${topMentionText}
 
       const insight = result.slice(0, 120)
       const notifTitle = `见解 · ${resolvedDisplayName}`
+      const recordLog: InsightRecordLog = {
+        endpoint,
+        model,
+        maxTokens,
+        temperature: API_TEMPERATURE,
+        triggerReason,
+        allowContext,
+        contextCount,
+        systemPrompt,
+        userPrompt,
+        rawOutput: result,
+        finalInsight: insight,
+        durationMs: apiDurationMs,
+        createdAt: Date.now()
+      }
+      const record = insightRecordService.addRecord({
+        sessionId,
+        displayName: resolvedDisplayName,
+        avatarUrl: resolvedAvatarUrl,
+        triggerReason,
+        insight,
+        log: recordLog
+      })
 
       const insightNotificationEnabled = this.config.get('aiInsightNotificationEnabled') !== false
       if (insightNotificationEnabled) {
@@ -1268,6 +1250,7 @@ ${topMentionText}
           content: insight,
           avatarUrl: INSIGHT_NOTIFICATION_AVATAR_URL,
           sessionId,
+          insightRecordId: record.id,
           channel: 'ai-insight'
         })
       } else {

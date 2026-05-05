@@ -327,7 +327,6 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
   const [weiboBindingLoadingSessionId, setWeiboBindingLoadingSessionId] = useState<string | null>(null)
   const [aiFootprintEnabled, setAiFootprintEnabled] = useState(false)
   const [aiFootprintSystemPrompt, setAiFootprintSystemPrompt] = useState('')
-  const [aiInsightDebugLogEnabled, setAiInsightDebugLogEnabled] = useState(false)
 
   // 自动下载图片
   const [autoDownloadStatus, setAutoDownloadStatus] = useState<{ isHooked: boolean; pid: number | null; supported: boolean } | null>(null)
@@ -591,7 +590,6 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
       const savedAiInsightWeiboBindings = await configService.getAiInsightWeiboBindings()
       const savedAiFootprintEnabled = await configService.getAiFootprintEnabled()
       const savedAiFootprintSystemPrompt = await configService.getAiFootprintSystemPrompt()
-      const savedAiInsightDebugLogEnabled = await configService.getAiInsightDebugLogEnabled()
 
       setAiInsightEnabled(savedAiInsightEnabled)
       setAiModelApiBaseUrl(savedAiModelApiBaseUrl)
@@ -618,7 +616,6 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
       setAiInsightWeiboBindings(savedAiInsightWeiboBindings)
       setAiFootprintEnabled(savedAiFootprintEnabled)
       setAiFootprintSystemPrompt(savedAiFootprintSystemPrompt)
-      setAiInsightDebugLogEnabled(savedAiInsightDebugLogEnabled)
 
     } catch (e: any) {
       console.error('加载配置失败:', e)
@@ -3946,32 +3943,6 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
               <strong>隐私</strong> — 所有分析请求均直接从你的电脑发往你填写的 API 地址，不经过任何 WeFlow 服务器。
             </p>
           </div>
-        </div>
-      </div>
-
-      <div className="divider" />
-
-      <div className="form-group">
-        <label>调试日志导出</label>
-        <span className="form-hint">
-          开启后，AI 见解链路会额外把完整调试日志写到桌面上的 <code>weflow-ai-insight-debug-YYYY-MM-DD.log</code>。
-          其中会包含发送给 AI 的完整提示词原文、近期对话上下文原文和模型输出原文，但不会记录 API Key。
-        </span>
-        <div className="log-toggle-line">
-          <span className="log-status">{aiInsightDebugLogEnabled ? '已开启' : '已关闭'}</span>
-          <label className="switch">
-            <input
-              type="checkbox"
-              checked={aiInsightDebugLogEnabled}
-              onChange={async (e) => {
-                const val = e.target.checked
-                setAiInsightDebugLogEnabled(val)
-                await configService.setAiInsightDebugLogEnabled(val)
-                showMessage(val ? '已开启 AI 见解调试日志，后续日志将写入桌面' : '已关闭 AI 见解调试日志', true)
-              }}
-            />
-            <span className="switch-slider" />
-          </label>
         </div>
       </div>
 
