@@ -1008,8 +1008,8 @@ function createSplashWindow(): BrowserWindow {
         : join(process.resourcesPath, 'icon.ico'))
 
   splashWindow = new BrowserWindow({
-    width: 760,
-    height: 460,
+    width: 856,
+    height: 540,
     resizable: false,
     frame: false,
     transparent: true,
@@ -1309,9 +1309,6 @@ function createChatHistoryRouteWindow(route: string) {
         ? join(process.resourcesPath, 'icon.icns')
         : join(process.resourcesPath, 'icon.ico'))
 
-  // 根据系统主题设置窗口背景色
-  const isDark = nativeTheme.shouldUseDarkColors
-
   const win = new BrowserWindow({
     width: 600,
     height: 800,
@@ -1326,13 +1323,31 @@ function createChatHistoryRouteWindow(route: string) {
     titleBarStyle: 'hidden',
     titleBarOverlay: false,
     show: false,
-    backgroundColor: isDark ? '#1A1A1A' : '#F0F0F0',
+    backgroundColor: '#FFFFFF',
     autoHideMenuBar: true
   })
   setupCustomTitleBarWindow(win)
 
-  win.once('ready-to-show', () => {
+  let hasShown = false
+  let isReadyToShow = false
+  let hasLoadedRoute = false
+  const showChatHistoryWindow = () => {
+    if (hasShown || !isReadyToShow || !hasLoadedRoute || win.isDestroyed()) return
+    hasShown = true
     win.show()
+  }
+
+  win.webContents.once('did-finish-load', () => {
+    hasLoadedRoute = true
+    setTimeout(showChatHistoryWindow, 30)
+  })
+  win.webContents.once('did-fail-load', () => {
+    hasLoadedRoute = true
+    showChatHistoryWindow()
+  })
+  win.once('ready-to-show', () => {
+    isReadyToShow = true
+    showChatHistoryWindow()
   })
 
   if (process.env.VITE_DEV_SERVER_URL) {

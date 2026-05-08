@@ -29,6 +29,8 @@ import {
   onSingleExportDialogStatus,
   requestExportSessionStatus
 } from '../services/exportBridge'
+import ChatHeader from './Chat/ChatHeader'
+import ChatMessageBubble from './Chat/ChatMessageBubble'
 import '../styles/batchTranscribe.scss'
 import './ChatPage.scss'
 
@@ -7027,155 +7029,62 @@ function ChatPage(props: ChatPageProps) {
             <BizMessageArea account={selectedBizAccount} />
         ) : currentSession ? (
             <>
-              <div className="message-header">
-              <Avatar
-                src={currentSession.avatarUrl}
-                name={currentSession.displayName || currentSession.username}
-                size={40}
-                className={isCurrentSessionGroup ? 'group session-avatar' : 'session-avatar'}
+              <ChatHeader
+                session={currentSession}
+                isGroupChat={isCurrentSessionGroup}
+                standaloneSessionWindow={standaloneSessionWindow}
+                showGroupMembersPanel={showGroupMembersPanel}
+                showJumpPopover={showJumpPopover}
+                showInSessionSearch={showInSessionSearch}
+                showDetailPanel={showDetailPanel}
+                shouldHideStandaloneDetailButton={shouldHideStandaloneDetailButton}
+                isPrivateSnsSupported={isCurrentSessionPrivateSnsSupported}
+                isExportActionBusy={isExportActionBusy}
+                isCurrentSessionExporting={isCurrentSessionExporting}
+                isPreparingExportDialog={isPreparingExportDialog}
+                isBatchTranscribing={isBatchTranscribing}
+                runningBatchVoiceTaskType={runningBatchVoiceTaskType}
+                isBatchDecrypting={isBatchDecrypting}
+                isRefreshingMessages={isRefreshingMessages}
+                isLoadingMessages={isLoadingMessages}
+                currentSessionId={currentSessionId}
+                jumpCalendarWrapRef={jumpCalendarWrapRef}
+                onGroupAnalytics={handleGroupAnalytics}
+                onToggleGroupMembersPanel={toggleGroupMembersPanel}
+                onExportCurrentSession={handleExportCurrentSession}
+                onOpenSnsTimeline={openCurrentSessionSnsTimeline}
+                onBatchTranscribe={handleBatchTranscribe}
+                onBatchDecrypt={handleBatchDecrypt}
+                onToggleJumpPopover={handleToggleJumpPopover}
+                onToggleInSessionSearch={handleToggleInSessionSearch}
+                onRefreshMessages={handleRefreshMessages}
+                onToggleDetailPanel={toggleDetailPanel}
               />
-              <div className="header-info">
-                <h3>{currentSession.displayName || currentSession.username}</h3>
-                {isCurrentSessionGroup && (
-                  <div className="header-subtitle">群聊</div>
-                )}
-              </div>
-              <div className="header-actions">
-                {!standaloneSessionWindow && isCurrentSessionGroup && (
-                  <button
-                    className="icon-btn group-analytics-btn"
-                    onClick={handleGroupAnalytics}
-                    title="群聊分析"
-                  >
-                    <BarChart3 size={18} />
-                  </button>
-                )}
-                {isCurrentSessionGroup && (
-                  <button
-                    className={`icon-btn group-members-btn ${showGroupMembersPanel ? 'active' : ''}`}
-                    onClick={toggleGroupMembersPanel}
-                    title="群成员"
-                  >
-                    <Users size={18} />
-                  </button>
-                )}
-                {!standaloneSessionWindow && (
-                  <button
-                    className={`icon-btn export-session-btn${isExportActionBusy ? ' exporting' : ''}`}
-                    onClick={handleExportCurrentSession}
-                    disabled={!currentSessionId || isExportActionBusy}
-                    title={isCurrentSessionExporting ? '导出中' : isPreparingExportDialog ? '正在准备导出模块' : '导出当前会话'}
-                  >
-                    {isExportActionBusy ? (
-                      <Loader2 size={18} className="spin" />
-                    ) : (
-                      <Download size={18} />
-                    )}
-                  </button>
-                )}
-                {!standaloneSessionWindow && isCurrentSessionPrivateSnsSupported && (
-                  <button
-                    className="icon-btn chat-sns-timeline-btn"
-                    onClick={openCurrentSessionSnsTimeline}
-                    disabled={!currentSessionId}
-                    title="查看对方朋友圈"
-                  >
-                    <Aperture size={18} />
-                  </button>
-                )}
-                {!standaloneSessionWindow && (
-                  <button
-                    className={`icon-btn batch-transcribe-btn${isBatchTranscribing ? ' transcribing' : ''}`}
-                    onClick={handleBatchTranscribe}
-                    disabled={!currentSessionId}
-                    title={isBatchTranscribing
-                      ? `${runningBatchVoiceTaskType === 'decrypt' ? '批量语音解密' : '批量转写'}中，可在导出页任务中心查看进度`
-                      : '批量语音处理（解密/转文字）'}
-                  >
-                    {isBatchTranscribing ? (
-                      <Loader2 size={18} className="spin" />
-                    ) : (
-                      <Mic size={18} />
-                    )}
-                  </button>
-                )}
-                {!standaloneSessionWindow && (
-                  <button
-                    className={`icon-btn batch-decrypt-btn${isBatchDecrypting ? ' transcribing' : ''}`}
-                    onClick={handleBatchDecrypt}
-                    disabled={!currentSessionId}
-                    title={isBatchDecrypting
-                      ? '批量解密中，可在导出页任务中心查看进度'
-                      : '批量解密图片'}
-                  >
-                    {isBatchDecrypting ? (
-                      <Loader2 size={18} className="spin" />
-                    ) : (
-                      <ImageIcon size={18} />
-                    )}
-                  </button>
-                )}
-                <div className="jump-calendar-anchor" ref={jumpCalendarWrapRef}>
-                  <button
-                    className={`icon-btn jump-to-time-btn ${showJumpPopover ? 'active' : ''}`}
-                    onClick={handleToggleJumpPopover}
-                    title="跳转到指定时间"
-                  >
-                    <Calendar size={18} />
-                  </button>
-                </div>
-                {showJumpPopover && createPortal(
-                  <div
-                    ref={jumpPopoverPortalRef}
-                    style={{
-                      position: 'fixed',
-                      top: jumpPopoverPosition.top,
-                      left: jumpPopoverPosition.left,
-                      zIndex: 3600
-                    }}
-                  >
-                    <JumpToDatePopover
-                      isOpen={showJumpPopover}
-                      currentDate={jumpPopoverDate}
-                      onClose={() => setShowJumpPopover(false)}
-                      onSelect={handleJumpDateSelect}
-                      messageDates={messageDates}
-                      hasLoadedMessageDates={hasLoadedMessageDates}
-                      messageDateCounts={messageDateCounts}
-                      loadingDates={loadingDates}
-                      loadingDateCounts={loadingDateCounts}
-                      style={{ position: 'static', top: 'auto', right: 'auto' }}
-                    />
-                  </div>,
-                  document.body
-                )}
-                <button
-                  className={`icon-btn in-session-search-btn ${showInSessionSearch ? 'active' : ''}`}
-                  onClick={handleToggleInSessionSearch}
-                  disabled={!currentSessionId}
-                  title="搜索会话消息"
+              {showJumpPopover && createPortal(
+                <div
+                  ref={jumpPopoverPortalRef}
+                  style={{
+                    position: 'fixed',
+                    top: jumpPopoverPosition.top,
+                    left: jumpPopoverPosition.left,
+                    zIndex: 3600
+                  }}
                 >
-                  <Search size={18} />
-                </button>
-                <button
-                  className="icon-btn refresh-messages-btn"
-                  onClick={handleRefreshMessages}
-                  disabled={isRefreshingMessages || isLoadingMessages}
-                  title="刷新消息"
-                >
-                  <RefreshCw size={18} className={isRefreshingMessages ? 'spin' : ''} />
-                </button>
-                {!shouldHideStandaloneDetailButton && (
-                  <button
-                    className={`icon-btn detail-btn ${showDetailPanel ? 'active' : ''}`}
-                    onClick={toggleDetailPanel}
-                    title="会话详情"
-                  >
-                    <Info size={18} />
-                  </button>
-                )}
-              </div>
-            </div>
+                  <JumpToDatePopover
+                    isOpen={showJumpPopover}
+                    currentDate={jumpPopoverDate}
+                    onClose={() => setShowJumpPopover(false)}
+                    onSelect={handleJumpDateSelect}
+                    messageDates={messageDates}
+                    hasLoadedMessageDates={hasLoadedMessageDates}
+                    messageDateCounts={messageDateCounts}
+                    loadingDates={loadingDates}
+                    loadingDateCounts={loadingDateCounts}
+                    style={{ position: 'static', top: 'auto', right: 'auto' }}
+                  />
+                </div>,
+                document.body
+              )}
 
             {isPreparingExportDialog && exportPrepareHint && (
               <div className="export-prepare-hint" role="status" aria-live="polite">
@@ -10827,115 +10736,57 @@ function MessageBubble({
     return <div className="bubble-content">{renderTextWithEmoji(cleanedParsedContent)}</div>
   }
 
-  return (
-    <>
-      {showTime && (
-        <div className="time-divider">
-          <span>{formatTime(message.createTime)}</span>
+  const systemAlertPortal = systemAlert ? createPortal(
+    <div className="modal-overlay" onClick={() => setSystemAlert(null)} style={{ zIndex: 99999 }}>
+      <div className="delete-confirm-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+        <div className="confirm-icon">
+          <AlertCircle size={32} color="var(--danger)" />
         </div>
-      )}
-      <div
-        className={`message-wrapper-with-selection ${isSelectionMode ? 'selectable' : ''}`}
-        style={{
-          display: 'flex',
-          alignItems: 'flex-start',
-          width: '100%',
-          justifyContent: isSent ? 'flex-end' : 'flex-start',
-          cursor: isSelectionMode ? 'pointer' : 'default'
-        }}
-        onClick={(e) => {
-          if (isSelectionMode) {
-            e.stopPropagation()
-            onToggleSelection?.(messageKey, e.shiftKey)
-          }
-        }}
-      >
-        {isSelectionMode && !isSent && (
-          <div className={`checkbox ${isSelected ? 'checked' : ''}`} style={{
-            width: '20px',
-            height: '20px',
-            borderRadius: '4px',
-            border: isSelected ? 'none' : '2px solid rgba(128,128,128,0.5)',
-            backgroundColor: isSelected ? 'var(--primary)' : 'transparent',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'white',
-            marginRight: '12px',
-            marginTop: '10px', // Align with avatar top
-            flexShrink: 0
-          }}>
-            {isSelected && <Check size={14} strokeWidth={3} />}
-          </div>
-        )}
-
-        <div className={`message-bubble ${bubbleClass} ${isEmoji && message.emojiCdnUrl && !emojiError ? 'emoji' : ''} ${isImage ? 'image' : ''} ${isVoice ? 'voice' : ''}`}
-          onContextMenu={(e) => onContextMenu?.(e, message)}
-        >
-          <div className="bubble-avatar">
-            <Avatar
-              src={avatarUrl}
-              name={!isSent ? (isGroupChat ? (resolvedSenderName || '?') : (session.displayName || session.username)) : '我'}
-              size={36}
-              className="bubble-avatar"
-            />
-          </div>
-          <div className="bubble-body">
-            {/* 群聊中显示发送者名称 */}
-            {isGroupChat && !isSent && (
-              <div className="sender-name">
-                {resolvedSenderName || '群成员'}
-              </div>
-            )}
-            {renderContent()}
-          </div>
+        <div className="confirm-content">
+          <h3>{systemAlert.title}</h3>
+          <p style={{ marginTop: '12px', lineHeight: '1.6', fontSize: '14px', color: 'var(--text-secondary)' }}>
+            {systemAlert.message}
+          </p>
         </div>
-
-        {isSelectionMode && isSent && (
-          <div className={`checkbox ${isSelected ? 'checked' : ''}`} style={{
-            width: '20px',
-            height: '20px',
-            borderRadius: '4px',
-            border: isSelected ? 'none' : '2px solid rgba(128,128,128,0.5)',
-            backgroundColor: isSelected ? 'var(--primary)' : 'transparent',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            color: 'white',
-            marginLeft: '12px',
-            marginTop: '10px',
-            flexShrink: 0
-          }}>
-            {isSelected && <Check size={14} strokeWidth={3} />}
-          </div>
-        )}
-        {systemAlert && createPortal(
-            <div className="modal-overlay" onClick={() => setSystemAlert(null)} style={{ zIndex: 99999 }}>
-              <div className="delete-confirm-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
-                <div className="confirm-icon">
-                  <AlertCircle size={32} color="var(--danger)" />
-                </div>
-                <div className="confirm-content">
-                  <h3>{systemAlert.title}</h3>
-                  <p style={{ marginTop: '12px', lineHeight: '1.6', fontSize: '14px', color: 'var(--text-secondary)' }}>
-                    {systemAlert.message}
-                  </p>
-                </div>
-                <div className="confirm-actions" style={{ justifyContent: 'center', marginTop: '24px' }}>
-                  <button
-                      className="btn-primary"
-                      onClick={() => setSystemAlert(null)}
-                      style={{ padding: '8px 32px' }}
-                  >
-                    确认
-                  </button>
-                </div>
-              </div>
-            </div>,
-            document.body
-        )}
+        <div className="confirm-actions" style={{ justifyContent: 'center', marginTop: '24px' }}>
+          <button
+            className="btn-primary"
+            onClick={() => setSystemAlert(null)}
+            style={{ padding: '8px 32px' }}
+          >
+            确认
+          </button>
+        </div>
       </div>
-    </>
+    </div>,
+    document.body
+  ) : null
+
+  return (
+    <ChatMessageBubble
+      message={message}
+      messageKey={messageKey}
+      session={session}
+      showTime={showTime}
+      timeText={formatTime(message.createTime)}
+      isSent={isSent}
+      isSystem={isSystem}
+      isEmoji={isEmoji}
+      isImage={isImage}
+      isVoice={isVoice}
+      emojiHasAsset={Boolean(message.emojiCdnUrl || message.emojiLocalPath)}
+      emojiError={emojiError}
+      avatarUrl={avatarUrl}
+      isGroupChat={isGroupChat}
+      resolvedSenderName={resolvedSenderName}
+      isSelectionMode={isSelectionMode}
+      isSelected={isSelected}
+      onContextMenu={onContextMenu}
+      onToggleSelection={onToggleSelection}
+      portal={systemAlertPortal}
+    >
+      {renderContent()}
+    </ChatMessageBubble>
   )
 }
 
