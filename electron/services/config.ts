@@ -1,9 +1,22 @@
 ﻿import { join } from 'path'
 import { existsSync, readdirSync, statSync } from 'fs'
-import { app, safeStorage } from 'electron'
 import crypto from 'crypto'
 import Store from 'electron-store'
 import { expandHomePath } from '../utils/pathUtils'
+
+// 条件导入 electron（Worker 环境中不可用）
+let app: any = null
+let safeStorage: any = null
+const isWorkerThread = process.env.WEFLOW_WORKER === '1'
+if (!isWorkerThread) {
+  try {
+    const electron = require('electron')
+    app = electron.app
+    safeStorage = electron.safeStorage
+  } catch {
+    // Worker 环境中 electron 不可用
+  }
+}
 
 // 加密前缀标记
 const SAFE_PREFIX = 'safe:'  // safeStorage 加密（普通模式）
