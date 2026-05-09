@@ -64,7 +64,7 @@ interface GlobalMsgPrefixCacheEntry {
   completed: boolean
 }
 
-type QuoteLayout = configService.QuoteLayout
+
 
 const GLOBAL_MSG_PER_SESSION_LIMIT = 10
 const GLOBAL_MSG_SEED_LIMIT = 120
@@ -8252,7 +8252,6 @@ function MessageBubble({
   const [senderAvatarUrl, setSenderAvatarUrl] = useState<string | undefined>(undefined)
   const [senderName, setSenderName] = useState<string | undefined>(undefined)
   const [quotedSenderName, setQuotedSenderName] = useState<string | undefined>(undefined)
-  const [quoteLayout, setQuoteLayout] = useState<QuoteLayout>('quote-top')
   const [solitaireExpanded, setSolitaireExpanded] = useState(false)
   const senderProfileRequestSeqRef = useRef(0)
   const [emojiError, setEmojiError] = useState(false)
@@ -9401,17 +9400,7 @@ function MessageBubble({
     myWxid
   ])
 
-  useEffect(() => {
-    let cancelled = false
-    void configService.getQuoteLayout().then((layout) => {
-      if (!cancelled) setQuoteLayout(layout)
-    }).catch(() => {
-      if (!cancelled) setQuoteLayout('quote-top')
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  // quoteLayout config removed - Ambient Reply uses a single fixed layout
 
   const locationMessageMeta = useMemo(() => {
     if (message.localType !== 48) return null
@@ -9448,29 +9437,32 @@ function MessageBubble({
   // 是否有引用消息
   const hasQuote = quotedContent.length > 0
   const displayQuotedSenderName = quotedSenderName || quotedSenderFallbackName
-  const renderBubbleWithQuote = useCallback((quotedNode: React.ReactNode, messageNode: React.ReactNode) => {
-    const quoteFirst = quoteLayout !== 'quote-bottom'
-    return (
-      <div className={`bubble-content ${quoteFirst ? 'quote-layout-top' : 'quote-layout-bottom'}`}>
-        {quoteFirst ? (
-          <>
-            {quotedNode}
-            {messageNode}
-          </>
-        ) : (
-          <>
-            {messageNode}
-            {quotedNode}
-          </>
-        )}
-      </div>
-    )
-  }, [quoteLayout])
+  // Ambient Reply: single fixed layout (anchor above, message below)
+  const renderBubbleWithQuote = useCallback((quotedNode: React.ReactNode, messageNode: React.ReactNode) => (
+    <div className="bubble-content">
+      {quotedNode}
+      {messageNode}
+    </div>
+  ), [])
 
+  // Ambient Reply: render reply-anchor + ghost preview
   const renderQuotedMessageBlock = useCallback((contentNode: React.ReactNode) => (
-    <div className="quoted-message">
-      {displayQuotedSenderName && <span className="quoted-sender">{displayQuotedSenderName}</span>}
-      <span className="quoted-text">{contentNode}</span>
+    <div className="ambient-reply-wrapper">
+      {/* Reply anchor - always visible, subtle */}
+      <div className="reply-anchor">
+        <svg className="reply-anchor-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="9 14 4 9 9 4" />
+          <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
+        </svg>
+        {displayQuotedSenderName && <span className="reply-anchor-name">{displayQuotedSenderName}</span>}
+        <span className="reply-anchor-sep">&middot;</span>
+        <span className="reply-anchor-excerpt">{contentNode}</span>
+      </div>
+      {/* Ghost preview - appears on hover */}
+      <div className="reply-ghost">
+        {displayQuotedSenderName && <div className="reply-ghost-sender">{displayQuotedSenderName}</div>}
+        <div className="reply-ghost-text">{contentNode}</div>
+      </div>
     </div>
   ), [displayQuotedSenderName])
 
