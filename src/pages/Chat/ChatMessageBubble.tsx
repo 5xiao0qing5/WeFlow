@@ -13,6 +13,7 @@ export interface ChatMessageBubbleProps {
   isSystem: boolean
   isEmoji?: boolean
   isImage?: boolean
+  isVideo?: boolean
   isVoice?: boolean
   emojiHasAsset?: boolean
   emojiError?: boolean
@@ -45,6 +46,7 @@ function ChatMessageBubble({
   isSystem,
   isEmoji,
   isImage,
+  isVideo,
   isVoice,
   emojiHasAsset,
   emojiError,
@@ -82,7 +84,7 @@ function ChatMessageBubble({
         {isSelectionMode && !isSent && <SelectionCheckbox checked={isSelected} side="left" />}
 
         <div
-          className={`message-bubble ${bubbleClass} ${isEmoji && emojiHasAsset && !emojiError ? 'emoji' : ''} ${isImage ? 'image' : ''} ${isVoice ? 'voice' : ''}`}
+          className={`message-bubble ${bubbleClass} ${isEmoji && emojiHasAsset && !emojiError ? 'emoji' : ''} ${isImage ? 'image' : ''} ${isVideo ? 'video' : ''} ${isVoice ? 'voice' : ''}`}
           onContextMenu={(event) => onContextMenu?.(event, message)}
         >
           <div className="bubble-avatar">
@@ -118,6 +120,7 @@ function areEqual(prev: ChatMessageBubbleProps, next: ChatMessageBubbleProps) {
     prev.isSystem === next.isSystem &&
     prev.isEmoji === next.isEmoji &&
     prev.isImage === next.isImage &&
+    prev.isVideo === next.isVideo &&
     prev.isVoice === next.isVoice &&
     prev.emojiHasAsset === next.emojiHasAsset &&
     prev.emojiError === next.emojiError &&

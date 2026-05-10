@@ -666,7 +666,9 @@
           }
         }
 
-        &.emoji {
+        &.emoji,
+        &.image,
+        &.video {
           .bubble-content {
             background: transparent !important;
             padding: 0;
@@ -2012,6 +2014,15 @@
       color: var(--text-primary);
     }
   }
+
+  &.voice {
+    .bubble-content {
+      background: transparent !important;
+      padding: 0 !important;
+      border: 0 !important;
+      box-shadow: none !important;
+    }
+  }
 }
 
 .bubble-avatar {
@@ -2067,7 +2078,12 @@
 .message-bubble .bubble-content:has(> .solitaire-message),
 .message-bubble .bubble-content:has(> .official-message),
 .message-bubble .bubble-content:has(> .channel-video-card),
-.message-bubble .bubble-content:has(> .location-message) {
+.message-bubble .bubble-content:has(> .location-message),
+.message-bubble .bubble-content:has(> .voice-stack),
+.message-bubble .bubble-content:has(> .video-thumb-wrapper),
+.message-bubble .bubble-content:has(> .video-placeholder),
+.message-bubble .bubble-content:has(> .video-loading),
+.message-bubble .bubble-content:has(> .video-unavailable) {
   background: transparent !important;
   padding: 0 !important;
   border: none !important;
@@ -2471,6 +2487,15 @@
     user-select: none;
     max-width: 100%;
     overflow: hidden;
+
+    &.jumpable {
+      cursor: pointer;
+    }
+
+    &:focus-visible {
+      outline: 2px solid color-mix(in srgb, var(--primary) 45%, transparent);
+      outline-offset: 2px;
+    }
   }
 
   &:hover .reply-anchor {
@@ -2529,7 +2554,7 @@
     bottom: calc(100% + 6px);
     max-width: 320px;
     min-width: 160px;
-    padding: 8px 12px 10px 12px;
+    padding: 8px 12px 12px 12px;
     border-radius: 12px;
     background: color-mix(in srgb, var(--bg-primary) 75%, transparent);
     backdrop-filter: blur(20px) saturate(1.3);
@@ -2582,10 +2607,6 @@
     overflow: hidden;
     white-space: pre-wrap;
     word-break: break-word;
-
-    // Edge fade effect
-    -webkit-mask-image: linear-gradient(to bottom, #000 55%, transparent 100%);
-    mask-image: linear-gradient(to bottom, #000 55%, transparent 100%);
 
     .inline-emoji {
       width: 16px !important;
@@ -5719,7 +5740,8 @@
   }
 
   &.emoji,
-  &.image {
+  &.image,
+  &.video {
     max-width: min(82%, 760px);
 
     .bubble-content {
@@ -5731,6 +5753,13 @@
   &.voice.sent .bubble-content {
     background: var(--bg-tertiary);
     color: var(--text-primary);
+  }
+
+  &.voice .bubble-content {
+    background: transparent !important;
+    padding: 0 !important;
+    border: 0 !important;
+    box-shadow: none !important;
   }
 }
 
@@ -5745,7 +5774,12 @@
 .message-bubble .bubble-content:has(> .transfer-message),
 .message-bubble .bubble-content:has(> .gift-message),
 .message-bubble .bubble-content:has(> .miniapp-message),
-.message-bubble .bubble-content:has(> .file-message) {
+.message-bubble .bubble-content:has(> .file-message),
+.message-bubble .bubble-content:has(> .voice-stack),
+.message-bubble .bubble-content:has(> .video-thumb-wrapper),
+.message-bubble .bubble-content:has(> .video-placeholder),
+.message-bubble .bubble-content:has(> .video-loading),
+.message-bubble .bubble-content:has(> .video-unavailable) {
   background: transparent !important;
   padding: 0 !important;
   border: 0 !important;

@@ -10,7 +10,7 @@
       --primary-rgb: 139, 115, 85;
       --on-primary: #ffffff;
       --window-bg: transparent;
-      --card-bg: rgba(255, 255, 255, 0.96);
+      --card-bg: #ffffff;
       --card-bg-solid: #ffffff;
       --card-border: rgba(0, 0, 0, 0.06);
       --text-primary: #171717;
@@ -54,11 +54,11 @@
       min-height: 0;
       position: relative;
       overflow: hidden;
-      border-radius: 0;
+      border-radius: 18px;
       border: none;
       background:
         linear-gradient(180deg, var(--card-gloss-start) 0%, var(--card-gloss-end) 48%),
-        var(--card-bg);
+        var(--card-bg-solid);
       box-shadow: var(--shadow);
       isolation: isolate;
       animation: shellIn 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
@@ -340,7 +340,7 @@
       setVar("--window-bg", "transparent");
 
       if (isDark) {
-        setVar("--card-bg", "rgba(31, 31, 31, 0.96)");
+        setVar("--card-bg", "#1f1f1f");
         setVar("--card-bg-solid", "#1f1f1f");
         setVar("--card-border", "rgba(255, 255, 255, 0.08)");
         setVar("--text-primary", "#f1f1f1");
@@ -352,7 +352,7 @@
         setVar("--card-gloss-end", "rgba(255, 255, 255, 0)");
         setVar("--shadow", "none");
       } else {
-        setVar("--card-bg", "rgba(255, 255, 255, 0.96)");
+        setVar("--card-bg", "#ffffff");
         setVar("--card-bg-solid", "#ffffff");
         setVar("--card-border", "rgba(0, 0, 0, 0.06)");
         setVar("--text-primary", "#171717");

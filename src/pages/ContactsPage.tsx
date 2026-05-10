@@ -793,7 +793,7 @@ function ContactsPage() {
         }
     }
 
-    const getContactTypeName = (type: string) => {
+    function getContactTypeName(type: string) {
         switch (type) {
             case 'friend': return '好友'
             case 'group': return '群聊'
