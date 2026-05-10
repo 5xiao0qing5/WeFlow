@@ -26,7 +26,6 @@
       --accent: #5b6abf;
       --accent-rgb: 91, 106, 191;
       --accent-hot: #364491;
-      --logo-highlight: #5b6abf;
       --ambient-glow: rgba(91, 106, 191, 0.08);
       --core-glow: rgba(91, 106, 191, 0.16);
       --text: #1a1b1e;
@@ -51,7 +50,6 @@
       --accent: #7c8deb;
       --accent-rgb: 124, 141, 235;
       --accent-hot: #ffffff;
-      --logo-highlight: #ffffff;
       --ambient-glow: rgba(124, 141, 235, 0.08);
       --core-glow: rgba(124, 141, 235, 0.28);
       --text: #f0f0f0;
@@ -153,22 +151,13 @@
       border-color: rgba(255, 255, 255, 0.10);
     }
 
-    .logo-mark {
-      width: 32px;
-      height: 32px;
-      color: var(--accent);
+    .logo-image {
+      width: 52px;
+      height: 52px;
       display: block;
-      filter: drop-shadow(0 0 8px rgba(var(--accent-rgb), 0.18));
-    }
-
-    [data-mode="light"] .logo-mark .mark-base {
-      color: var(--text-faint);
-      opacity: 0.42;
-    }
-
-    [data-mode="dark"] .logo-mark .mark-base {
-      color: var(--accent);
-      opacity: 1;
+      object-fit: contain;
+      border-radius: 16px;
+      filter: drop-shadow(0 10px 22px rgba(var(--accent-rgb), 0.18));
     }
 
     .app-name {
@@ -276,18 +265,17 @@
 
     .progress-fill {
       position: absolute;
-      left: 0;
+      left: -18%;
       bottom: 0;
-      width: 0%;
+      width: 8%;
       height: 100%;
       min-width: 0;
-      border-radius: 0 999px 999px 0;
+      border-radius: 999px;
       background: linear-gradient(90deg, transparent 0%, var(--accent) 54%, var(--accent-hot) 100%);
       box-shadow: 0 0 10px 1px rgba(var(--accent-rgb), 0.30);
-      transition:
-        width 680ms var(--ease-ambient),
-        opacity 260ms ease,
-        left 680ms var(--ease-ambient);
+      transform-origin: center;
+      will-change: left, width, transform, opacity;
+      animation: beamSweep 2680ms var(--ease-ambient) infinite;
     }
 
     .progress-fill::before {
@@ -315,12 +303,6 @@
       animation-delay: 180ms;
     }
 
-    .progress-fill.waiting {
-      border-radius: 999px;
-      transition: none;
-      animation: beamSweep 2500ms var(--ease-ambient) infinite;
-    }
-
     @media (prefers-reduced-motion: reduce) {
       .splash-shell,
       .brand-stage,
@@ -334,9 +316,10 @@
         transition: none !important;
       }
 
-      .progress-fill.waiting {
+      .progress-fill {
         left: 0 !important;
-        width: 70% !important;
+        width: 46% !important;
+        opacity: 1 !important;
       }
     }
 
@@ -414,16 +397,52 @@
 
     @keyframes beamSweep {
       0% {
-        left: -30%;
-        width: 0%;
+        left: -18%;
+        width: 8%;
+        opacity: 0;
+        transform: scaleX(0.72);
       }
-      50% {
-        left: 30%;
-        width: 40%;
+      11% {
+        left: -2%;
+        width: 18%;
+        opacity: 0.72;
+        transform: scaleX(0.92);
+      }
+      34% {
+        left: 27%;
+        width: 38%;
+        opacity: 1;
+        transform: scaleX(1.08);
+      }
+      58% {
+        left: 60%;
+        width: 35%;
+        opacity: 1;
+        transform: scaleX(1);
+      }
+      73% {
+        left: 86%;
+        width: 18%;
+        opacity: 0.94;
+        transform: scaleX(0.68);
+      }
+      82% {
+        left: 96%;
+        width: 8%;
+        opacity: 0.58;
+        transform: scaleX(0.30);
+      }
+      91% {
+        left: 92%;
+        width: 11%;
+        opacity: 0.18;
+        transform: scaleX(0.22);
       }
       100% {
-        left: 100%;
-        width: 10%;
+        left: 112%;
+        width: 0%;
+        opacity: 0;
+        transform: scaleX(0.18);
       }
     }
   </style>
@@ -432,10 +451,7 @@
   <main class="splash-shell" id="splash" role="status" aria-live="polite">
     <section class="brand-stage" aria-label="WeFlow">
       <div class="logo-core" aria-hidden="true">
-        <svg class="logo-mark" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path class="mark-base" d="M10 24C10 24 14 34 18 34C22 34 24 20 28 20C32 20 38 30 38 30" />
-          <path d="M28 20C32 20 38 30 38 30" stroke="var(--logo-highlight)" opacity="0.82" />
-        </svg>
+        <img class="logo-image" src="./logo.png" alt="">
       </div>
 
       <h1 class="app-name">WeFlow</h1>
@@ -497,21 +513,13 @@
       syncSystemModeListener(safeMode);
     }
 
-    function updateProgress(percent, text, waiting) {
+    function updateProgress(_percent, text, _waiting) {
       var fill = document.getElementById("progressFill");
       var label = document.getElementById("progressText");
-      var safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
 
       if (fill) {
-        if (waiting) {
-          fill.classList.add("waiting");
-          fill.style.left = "";
-          fill.style.width = "";
-        } else {
-          fill.classList.remove("waiting");
-          fill.style.left = "0";
-          fill.style.width = safePercent + "%";
-        }
+        fill.style.left = "";
+        fill.style.width = "";
       }
 
       if (label && text) label.textContent = text;
