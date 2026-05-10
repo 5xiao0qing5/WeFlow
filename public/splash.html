@@ -21,18 +21,14 @@
     :root {
       --surface-start: #ffffff;
       --surface-end: #f8f9fc;
-      --surface-glass: rgba(255, 255, 255, 0.78);
-      --surface-glass-end: rgba(255, 255, 255, 0.52);
       --accent: #5b6abf;
       --accent-rgb: 91, 106, 191;
-      --accent-hot: #364491;
       --ambient-glow: rgba(91, 106, 191, 0.08);
-      --core-glow: rgba(91, 106, 191, 0.16);
       --text: #1a1b1e;
       --text-muted: #5f6368;
       --text-faint: #9aa0a6;
       --border-subtle: rgba(0, 0, 0, 0.05);
-      --loader-track: rgba(0, 0, 0, 0.03);
+      --loader-track: rgba(0, 0, 0, 0.06);
       --shadow-window:
         0 24px 60px rgba(23, 27, 38, 0.10),
         0 4px 12px rgba(23, 27, 38, 0.04),
@@ -45,18 +41,14 @@
     [data-mode="dark"] {
       --surface-start: #14171d;
       --surface-end: #0b0d10;
-      --surface-glass: rgba(255, 255, 255, 0.10);
-      --surface-glass-end: rgba(255, 255, 255, 0.02);
       --accent: #7c8deb;
       --accent-rgb: 124, 141, 235;
-      --accent-hot: #ffffff;
       --ambient-glow: rgba(124, 141, 235, 0.08);
-      --core-glow: rgba(124, 141, 235, 0.28);
       --text: #f0f0f0;
       --text-muted: #8b92a5;
       --text-faint: #4e5569;
       --border-subtle: rgba(255, 255, 255, 0.06);
-      --loader-track: rgba(255, 255, 255, 0.03);
+      --loader-track: rgba(255, 255, 255, 0.09);
       --shadow-window:
         0 24px 80px rgba(0, 0, 0, 0.60),
         inset 0 1px 0 rgba(255, 255, 255, 0.05);
@@ -132,32 +124,20 @@
     .logo-core {
       width: 64px;
       height: 64px;
-      border-radius: 20px;
       display: grid;
       place-items: center;
       margin-bottom: 24px;
-      background: linear-gradient(135deg, var(--surface-glass), var(--surface-glass-end));
-      border: 1px solid rgba(255, 255, 255, 0.18);
-      backdrop-filter: blur(12px) saturate(1.16);
-      -webkit-backdrop-filter: blur(12px) saturate(1.16);
-      animation: coreBreathe 3200ms ease-in-out infinite alternate;
-    }
-
-    [data-mode="light"] .logo-core {
-      border-color: rgba(255, 255, 255, 0.82);
-    }
-
-    [data-mode="dark"] .logo-core {
-      border-color: rgba(255, 255, 255, 0.10);
+      background: transparent;
+      border: 0;
     }
 
     .logo-image {
-      width: 52px;
-      height: 52px;
+      width: 64px;
+      height: 64px;
       display: block;
       object-fit: contain;
-      border-radius: 16px;
-      filter: drop-shadow(0 10px 22px rgba(var(--accent-rgb), 0.18));
+      border-radius: 20px;
+      animation: logoBreathe 3200ms ease-in-out infinite alternate;
     }
 
     .app-name {
@@ -254,28 +234,27 @@
       right: 0;
       bottom: 0;
       z-index: 3;
-      height: 1.5px;
+      height: 3px;
       background: var(--loader-track);
       overflow: hidden;
     }
 
     [data-mode="dark"] .progress-track {
-      height: 1px;
+      height: 3px;
     }
 
     .progress-fill {
       position: absolute;
-      left: -18%;
+      left: 0;
       bottom: 0;
-      width: 8%;
+      width: 0%;
       height: 100%;
       min-width: 0;
-      border-radius: 999px;
-      background: linear-gradient(90deg, transparent 0%, var(--accent) 54%, var(--accent-hot) 100%);
-      box-shadow: 0 0 10px 1px rgba(var(--accent-rgb), 0.30);
-      transform-origin: center;
-      will-change: left, width, transform, opacity;
-      animation: beamSweep 2680ms var(--ease-ambient) infinite;
+      border-radius: 0 999px 999px 0;
+      background: var(--accent);
+      box-shadow: 0 0 18px rgba(var(--accent-rgb), 0.34);
+      overflow: hidden;
+      transition: width 440ms var(--ease-ambient);
     }
 
     .progress-fill::before {
@@ -288,8 +267,7 @@
       border-radius: 999px;
       background: rgba(var(--accent-rgb), 0.34);
       filter: blur(8px);
-      opacity: 0.65;
-      animation: leadingGlow 1800ms ease-in-out infinite;
+      opacity: 0;
     }
 
     .progress-fill::after {
@@ -299,15 +277,19 @@
       background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.54), transparent);
       opacity: 0;
       transform: translateX(-100%);
-      animation: spectralGlide 1500ms ease-out infinite;
-      animation-delay: 180ms;
+      animation: spectralGlide 1200ms ease-out;
+    }
+
+    .progress-fill.waiting::before {
+      opacity: 0.65;
+      animation: leadingGlow 1300ms ease-in-out infinite;
     }
 
     @media (prefers-reduced-motion: reduce) {
       .splash-shell,
       .brand-stage,
       .status-row,
-      .logo-core,
+      .logo-image,
       .status-dot,
       .progress-fill,
       .progress-fill::before,
@@ -318,7 +300,6 @@
 
       .progress-fill {
         left: 0 !important;
-        width: 46% !important;
         opacity: 1 !important;
       }
     }
@@ -345,13 +326,13 @@
       }
     }
 
-    @keyframes coreBreathe {
+    @keyframes logoBreathe {
       0% {
-        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.03), 0 0 0 1px rgba(var(--accent-rgb), 0.08);
+        opacity: 0.94;
         transform: translateY(0);
       }
       100% {
-        box-shadow: 0 8px 30px var(--core-glow), 0 0 0 1px rgba(var(--accent-rgb), 0.20);
+        opacity: 1;
         transform: translateY(-3px);
       }
     }
@@ -395,56 +376,6 @@
       }
     }
 
-    @keyframes beamSweep {
-      0% {
-        left: -18%;
-        width: 8%;
-        opacity: 0;
-        transform: scaleX(0.72);
-      }
-      11% {
-        left: -2%;
-        width: 18%;
-        opacity: 0.72;
-        transform: scaleX(0.92);
-      }
-      34% {
-        left: 27%;
-        width: 38%;
-        opacity: 1;
-        transform: scaleX(1.08);
-      }
-      58% {
-        left: 60%;
-        width: 35%;
-        opacity: 1;
-        transform: scaleX(1);
-      }
-      73% {
-        left: 86%;
-        width: 18%;
-        opacity: 0.94;
-        transform: scaleX(0.68);
-      }
-      82% {
-        left: 96%;
-        width: 8%;
-        opacity: 0.58;
-        transform: scaleX(0.30);
-      }
-      91% {
-        left: 92%;
-        width: 11%;
-        opacity: 0.18;
-        transform: scaleX(0.22);
-      }
-      100% {
-        left: 112%;
-        width: 0%;
-        opacity: 0;
-        transform: scaleX(0.18);
-      }
-    }
   </style>
 </head>
 <body>
@@ -513,13 +444,21 @@
       syncSystemModeListener(safeMode);
     }
 
-    function updateProgress(_percent, text, _waiting) {
+    function updateProgress(percent, text, waiting) {
       var fill = document.getElementById("progressFill");
       var label = document.getElementById("progressText");
+      var safePercent = Math.max(0, Math.min(100, Number(percent) || 0));
 
       if (fill) {
-        fill.style.left = "";
-        fill.style.width = "";
+        fill.style.width = safePercent + "%";
+        if (waiting) {
+          fill.classList.add("waiting");
+        } else {
+          fill.classList.remove("waiting");
+          fill.style.animation = "none";
+          fill.offsetHeight;
+          fill.style.animation = "";
+        }
       }
 
       if (label && text) label.textContent = text;
