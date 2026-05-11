@@ -1128,8 +1128,9 @@
 .quote-layout-preview-shell {
   background: var(--bg-secondary);
   border-radius: 8px;
-  padding: 12px;
+  padding: 16px;
   border: 1px solid var(--border-color);
+  overflow: hidden;
 }
 
 .quote-layout-preview-chat {
@@ -1137,32 +1138,75 @@
   justify-content: flex-end;
 }
 
-.message-bubble {
-  max-width: 80%;
+.quote-layout-preview-chat .message-bubble {
+  max-width: 82%;
 }
 
-.bubble-content {
+.quote-layout-preview-chat .bubble-content {
   background: var(--primary);
   color: var(--on-primary);
-  border-radius: 12px;
+  border-radius: 18px;
   padding: 10px 12px;
   font-size: 13px;
+  line-height: 1.5;
   display: flex;
   flex-direction: column;
+  min-width: 0;
+  max-width: 100%;
 }
 
-.quote-layout-top .quoted-message { margin-bottom: 6px; }
-.quote-layout-bottom .quoted-message { margin-top: 6px; }
+.quote-layout-top .ambient-reply-wrapper { margin-bottom: 4px; }
+.quote-layout-bottom .ambient-reply-wrapper { margin-top: 4px; margin-bottom: 0; }
 
-.quoted-message {
-  background: rgba(0,0,0,0.15);
-  border-left: 2px solid rgba(255,255,255,0.4);
-  padding: 4px 8px;
-  border-radius: 4px;
+.quote-layout-preview-chat .ambient-reply-wrapper {
+  position: relative;
+  cursor: default;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.quote-layout-preview-chat .reply-anchor {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+  padding: 2px 6px 2px 4px;
+  border-radius: 8px;
+  background: transparent;
+  user-select: none;
+  overflow: hidden;
+}
+
+.quote-layout-preview-chat .reply-anchor-icon {
+  width: 13px;
+  height: 13px;
+  color: color-mix(in srgb, var(--on-primary) 84%, var(--primary));
+  opacity: 0.78;
+  flex-shrink: 0;
+}
+
+.quote-layout-preview-chat .reply-anchor-name {
   font-size: 12px;
-  
-  .quoted-sender { font-weight: 500; margin-right: 4px; &::after { content: ':'; } }
-  .quoted-text { opacity: 0.9; }
+  font-weight: 500;
+  color: color-mix(in srgb, var(--on-primary) 92%, var(--primary));
+  flex-shrink: 0;
+}
+
+.quote-layout-preview-chat .reply-anchor-sep {
+  font-size: 10px;
+  color: color-mix(in srgb, var(--on-primary) 58%, var(--primary));
+  flex-shrink: 0;
+}
+
+.quote-layout-preview-chat .reply-anchor-excerpt {
+  min-width: 0;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12px;
+  color: color-mix(in srgb, var(--on-primary) 78%, var(--primary));
 }
 
 @media (max-width: 760px) {

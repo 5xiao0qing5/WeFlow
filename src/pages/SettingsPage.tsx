@@ -1711,16 +1711,30 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
                         {isQuoteBottom ? (
                           <>
                             <div className="message-text">拍得真不错!</div>
-                            <div className="quoted-message">
-                              <span className="quoted-sender">张三</span>
-                              <span className="quoted-text">那天去爬山的照片...</span>
+                            <div className="ambient-reply-wrapper">
+                              <div className="reply-anchor">
+                                <svg className="reply-anchor-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="9 14 4 9 9 4" />
+                                  <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
+                                </svg>
+                                <span className="reply-anchor-name">张三</span>
+                                <span className="reply-anchor-sep">&middot;</span>
+                                <span className="reply-anchor-excerpt">那天去爬山的照片...</span>
+                              </div>
                             </div>
                           </>
                         ) : (
                           <>
-                            <div className="quoted-message">
-                              <span className="quoted-sender">张三</span>
-                              <span className="quoted-text">那天去爬山的照片...</span>
+                            <div className="ambient-reply-wrapper">
+                              <div className="reply-anchor">
+                                <svg className="reply-anchor-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="9 14 4 9 9 4" />
+                                  <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
+                                </svg>
+                                <span className="reply-anchor-name">张三</span>
+                                <span className="reply-anchor-sep">&middot;</span>
+                                <span className="reply-anchor-excerpt">那天去爬山的照片...</span>
+                              </div>
                             </div>
                             <div className="message-text">拍得真不错!</div>
                           </>
