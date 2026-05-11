@@ -1001,6 +1001,8 @@ function createAgreementWindow() {
  */
 function createSplashWindow(): BrowserWindow {
   const isDev = !!process.env.VITE_DEV_SERVER_URL
+  const splashThemeId = configService?.get('themeId') || 'cloud-dancer'
+  const splashThemeMode = configService?.get('theme') || 'system'
   const iconPath = isDev
     ? join(__dirname, '../public/icon.ico')
     : (process.platform === 'darwin' 
@@ -1008,8 +1010,8 @@ function createSplashWindow(): BrowserWindow {
         : join(process.resourcesPath, 'icon.ico'))
 
   splashWindow = new BrowserWindow({
-    width: 856,
-    height: 540,
+    width: 680,
+    height: 460,
     resizable: false,
     frame: false,
     transparent: true,
@@ -1027,9 +1029,17 @@ function createSplashWindow(): BrowserWindow {
   })
 
   if (isDev) {
-    splashWindow.loadURL(`${process.env.VITE_DEV_SERVER_URL}splash.html`)
+    const splashUrl = new URL('splash.html', process.env.VITE_DEV_SERVER_URL)
+    splashUrl.searchParams.set('themeId', splashThemeId)
+    splashUrl.searchParams.set('themeMode', splashThemeMode)
+    splashWindow.loadURL(splashUrl.toString())
   } else {
-    splashWindow.loadFile(join(__dirname, '../dist/splash.html'))
+    splashWindow.loadFile(join(__dirname, '../dist/splash.html'), {
+      query: {
+        themeId: splashThemeId,
+        themeMode: splashThemeMode
+      }
+    })
   }
 
   splashWindow.once('ready-to-show', () => {

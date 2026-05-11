@@ -55,6 +55,17 @@ interface PendingFootprintJumpPayload {
   createTime: number
 }
 
+interface QuotedMessageJumpTarget {
+  sourceMessageKey: string
+  sourceCreateTime: number
+  sessionId: string
+  localId?: number
+  serverId?: string
+  createTime?: number
+  senderUsername?: string
+  content?: string
+}
+
 type GlobalMsgSearchPhase = 'idle' | 'seed' | 'backfill' | 'done'
 type GlobalMsgSearchResult = Message & { sessionId: string }
 
@@ -64,7 +75,7 @@ interface GlobalMsgPrefixCacheEntry {
   completed: boolean
 }
 
-type QuoteLayout = configService.QuoteLayout
+
 
 const GLOBAL_MSG_PER_SESSION_LIMIT = 10
 const GLOBAL_MSG_SEED_LIMIT = 120
@@ -676,6 +687,26 @@ function cleanMessageContent(content: string): string {
   return content.trim()
 }
 
+function normalizeMessageIdToken(value: unknown): string {
+  const raw = String(value ?? '').trim()
+  if (!raw) return ''
+  if (!/^\d+$/.test(raw)) return raw
+  return raw.replace(/^0+(?=\d)/, '')
+}
+
+function parsePositiveInteger(value: unknown): number | undefined {
+  const raw = String(value ?? '').trim()
+  if (!raw) return undefined
+  const parsed = Number(raw)
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined
+  return Math.floor(parsed)
+}
+
+function normalizeQuotedComparableText(value: unknown): string {
+  const text = cleanMessageContent(String(value ?? '')).replace(/\s+/g, ' ').trim()
+  return text.length > 160 ? text.slice(0, 160) : text
+}
+
 const CHAT_SESSION_LIST_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 const CHAT_SESSION_PREVIEW_CACHE_TTL_MS = 24 * 60 * 60 * 1000
 const CHAT_SESSION_PREVIEW_LIMIT_PER_SESSION = 30
@@ -1113,6 +1144,15 @@ interface LoadMessagesOptions {
   switchRequestSeq?: number
   inSessionJumpRequestSeq?: number
 }
+
+type LoadMessagesFn = (
+  sessionId: string,
+  offset?: number,
+  startTime?: number,
+  endTime?: number,
+  ascending?: boolean,
+  options?: LoadMessagesOptions
+) => Promise<void>
 
 // 全局头像加载队列管理器已移至 src/utils/AvatarLoadQueue.ts
 import { avatarLoadQueue } from '../utils/AvatarLoadQueue'
@@ -1572,6 +1612,8 @@ function ChatPage(props: ChatPageProps) {
   const [globalMsgSearchError, setGlobalMsgSearchError] = useState<string | null>(null)
   const pendingInSessionSearchRef = useRef<PendingInSessionSearchPayload | null>(null)
   const pendingFootprintJumpRef = useRef<PendingFootprintJumpPayload | null>(null)
+  const pendingQuotedMessageJumpRef = useRef<QuotedMessageJumpTarget | null>(null)
+  const loadMessagesRef = useRef<LoadMessagesFn | null>(null)
   const pendingGlobalMsgSearchReplayRef = useRef<string | null>(null)
   const globalMsgPrefixCacheRef = useRef<GlobalMsgPrefixCacheEntry | null>(null)
 
@@ -3772,6 +3814,8 @@ function ChatPage(props: ChatPageProps) {
     }
   }
 
+  loadMessagesRef.current = loadMessages
+
   const handleJumpDateSelect = useCallback((date: Date, options: { sessionId?: string; switchRequestSeq?: number } = {}) => {
     const targetSessionId = String(options.sessionId || currentSessionRef.current || currentSessionId || '').trim()
     if (!targetSessionId) return
@@ -4880,6 +4924,136 @@ function ChatPage(props: ChatPageProps) {
       setHighlightedMessageKeys((prev) => prev.filter((k) => !keys.includes(k)))
     }, 2500)
   }, [])
+
+  const findQuotedTargetInMessages = useCallback((target: QuotedMessageJumpTarget): { index: number; message: Message } | null => {
+    if (messages.length === 0) return null
+
+    const targetServerId = normalizeMessageIdToken(target.serverId)
+    const targetLocalId = typeof target.localId === 'number' && target.localId > 0 ? target.localId : undefined
+    const targetCreateTime = typeof target.createTime === 'number' && target.createTime > 0 ? target.createTime : undefined
+    const targetSender = String(target.senderUsername || '').trim()
+    const targetContent = normalizeQuotedComparableText(target.content)
+    const sourceIndex = target.sourceMessageKey
+      ? messages.findIndex((item) => getMessageKey(item) === target.sourceMessageKey)
+      : -1
+
+    const orderedIndices: number[] = []
+    const usedIndices = new Set<number>()
+    const pushIndex = (index: number) => {
+      if (index < 0 || index >= messages.length || usedIndices.has(index)) return
+      usedIndices.add(index)
+      orderedIndices.push(index)
+    }
+
+    if (sourceIndex > 0) {
+      for (let index = sourceIndex - 1; index >= 0; index--) {
+        pushIndex(index)
+      }
+    }
+    for (let index = 0; index < messages.length; index++) {
+      pushIndex(index)
+    }
+
+    let best: { index: number; message: Message; score: number } | null = null
+    for (const index of orderedIndices) {
+      const item = messages[index]
+      const itemKey = getMessageKey(item)
+      if (itemKey === target.sourceMessageKey) continue
+
+      const itemServerId = normalizeMessageIdToken(item.serverIdRaw ?? item.serverId)
+      const serverMatch = Boolean(targetServerId && itemServerId && itemServerId === targetServerId)
+      const localIdMatch = Boolean(targetLocalId && Number(item.localId || 0) === targetLocalId)
+      const itemCreateTime = Number(item.createTime || 0)
+      const timeDelta = targetCreateTime ? Math.abs(itemCreateTime - targetCreateTime) : Number.POSITIVE_INFINITY
+      const exactTimeMatch = Boolean(targetCreateTime && timeDelta <= 1)
+      const nearTimeMatch = Boolean(targetCreateTime && timeDelta <= 300)
+      const senderMatch = Boolean(targetSender && String(item.senderUsername || '').trim() === targetSender)
+      const itemText = targetContent
+        ? normalizeQuotedComparableText(item.parsedContent || item.rawContent || item.content || '')
+        : ''
+      const contentMatch = Boolean(
+        targetContent &&
+        itemText &&
+        (itemText.includes(targetContent) || targetContent.includes(itemText))
+      )
+
+      const strongMatch = Boolean(
+        serverMatch ||
+        localIdMatch ||
+        (exactTimeMatch && (senderMatch || contentMatch)) ||
+        (exactTimeMatch && !targetSender && !targetContent)
+      )
+      if (!strongMatch) continue
+
+      const score =
+        (localIdMatch ? 100 : 0) +
+        (serverMatch ? 90 : 0) +
+        (exactTimeMatch ? 35 : (nearTimeMatch ? 8 : 0)) +
+        (senderMatch ? 12 : 0) +
+        (contentMatch ? 12 : 0)
+
+      if (!best || score > best.score) {
+        best = { index, message: item, score }
+        if (score >= 125) break
+      }
+    }
+
+    return best ? { index: best.index, message: best.message } : null
+  }, [messages, getMessageKey])
+
+  const scrollToResolvedMessage = useCallback((resolved: { index: number; message: Message }, behavior: 'auto' | 'smooth' = 'smooth') => {
+    const key = getMessageKey(resolved.message)
+    flashNewMessages([key])
+    requestAnimationFrame(() => {
+      if (messageVirtuosoRef.current) {
+        messageVirtuosoRef.current.scrollToIndex({
+          index: resolved.index,
+          align: 'center',
+          behavior
+        })
+      }
+    })
+  }, [flashNewMessages, getMessageKey])
+
+  const handleJumpToQuotedMessage = useCallback((target: QuotedMessageJumpTarget) => {
+    const targetSessionId = String(currentSessionRef.current || currentSessionId || target.sessionId || '').trim()
+    if (!targetSessionId) return
+
+    const normalizedTarget: QuotedMessageJumpTarget = {
+      ...target,
+      sessionId: targetSessionId
+    }
+    const resolved = findQuotedTargetInMessages(normalizedTarget)
+    if (resolved) {
+      pendingQuotedMessageJumpRef.current = null
+      scrollToResolvedMessage(resolved)
+      return
+    }
+
+    pendingQuotedMessageJumpRef.current = normalizedTarget
+    const targetTime = Number(normalizedTarget.createTime || 0)
+    if (!targetTime) return
+
+    const requestSeq = inSessionResultJumpRequestSeqRef.current + 1
+    inSessionResultJumpRequestSeqRef.current = requestSeq
+    setCurrentOffset(0)
+    setJumpStartTime(0)
+    setJumpEndTime(targetTime + 1)
+    suppressAutoLoadLaterRef.current = true
+    void loadMessagesRef.current?.(targetSessionId, 0, 0, targetTime + 1, false, {
+      forceInitialLimit: 120,
+      inSessionJumpRequestSeq: requestSeq
+    })
+  }, [currentSessionId, findQuotedTargetInMessages, scrollToResolvedMessage])
+
+  useEffect(() => {
+    const pending = pendingQuotedMessageJumpRef.current
+    if (!pending) return
+    const resolved = findQuotedTargetInMessages(pending)
+    if (!resolved) return
+    pendingQuotedMessageJumpRef.current = null
+    scrollToResolvedMessage(resolved, 'auto')
+  }, [messages, findQuotedTargetInMessages, scrollToResolvedMessage])
 
   const handleInSessionResultJump = useCallback((msg: Message) => {
     const targetTime = Number(msg.createTime || 0)
@@ -6679,6 +6853,7 @@ function ChatPage(props: ChatPageProps) {
           autoTranscribeVoiceEnabled={autoTranscribeVoiceEnabled}
           onRequireModelDownload={handleRequireModelDownload}
           onContextMenu={handleContextMenu}
+          onJumpToQuotedMessage={handleJumpToQuotedMessage}
           isSelectionMode={isSelectionMode}
           messageKey={messageKey}
           isSelected={selectedMessages.has(messageKey)}
@@ -6698,6 +6873,7 @@ function ChatPage(props: ChatPageProps) {
     autoTranscribeVoiceEnabled,
     handleRequireModelDownload,
     handleContextMenu,
+    handleJumpToQuotedMessage,
     isSelectionMode,
     selectedMessages,
     handleToggleSelection
@@ -8261,6 +8437,7 @@ function MessageBubble({
   autoTranscribeVoiceEnabled,
   onRequireModelDownload,
   onContextMenu,
+  onJumpToQuotedMessage,
   isSelectionMode,
   isSelected,
   onToggleSelection
@@ -8275,6 +8452,7 @@ function MessageBubble({
   autoTranscribeVoiceEnabled?: boolean;
   onRequireModelDownload?: (sessionId: string, messageId: string) => void;
   onContextMenu?: (e: React.MouseEvent, message: Message) => void;
+  onJumpToQuotedMessage?: (target: QuotedMessageJumpTarget) => void;
   isSelectionMode?: boolean;
   isSelected?: boolean;
   onToggleSelection?: (messageKey: string, isShiftKey?: boolean) => void;
@@ -8291,7 +8469,6 @@ function MessageBubble({
   const [senderAvatarUrl, setSenderAvatarUrl] = useState<string | undefined>(undefined)
   const [senderName, setSenderName] = useState<string | undefined>(undefined)
   const [quotedSenderName, setQuotedSenderName] = useState<string | undefined>(undefined)
-  const [quoteLayout, setQuoteLayout] = useState<QuoteLayout>('quote-top')
   const [solitaireExpanded, setSolitaireExpanded] = useState(false)
   const senderProfileRequestSeqRef = useRef(0)
   const [emojiError, setEmojiError] = useState(false)
@@ -9464,17 +9641,7 @@ function MessageBubble({
     myWxid
   ])
 
-  useEffect(() => {
-    let cancelled = false
-    void configService.getQuoteLayout().then((layout) => {
-      if (!cancelled) setQuoteLayout(layout)
-    }).catch(() => {
-      if (!cancelled) setQuoteLayout('quote-top')
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  // quoteLayout config removed - Ambient Reply uses a single fixed layout
 
   const locationMessageMeta = useMemo(() => {
     if (message.localType !== 48) return null
@@ -9511,31 +9678,90 @@ function MessageBubble({
   // 是否有引用消息
   const hasQuote = quotedContent.length > 0
   const displayQuotedSenderName = quotedSenderName || quotedSenderFallbackName
-  const renderBubbleWithQuote = useCallback((quotedNode: React.ReactNode, messageNode: React.ReactNode) => {
-    const quoteFirst = quoteLayout !== 'quote-bottom'
-    return (
-      <div className={`bubble-content ${quoteFirst ? 'quote-layout-top' : 'quote-layout-bottom'}`}>
-        {quoteFirst ? (
-          <>
-            {quotedNode}
-            {messageNode}
-          </>
-        ) : (
-          <>
-            {messageNode}
-            {quotedNode}
-          </>
-        )}
-      </div>
-    )
-  }, [quoteLayout])
+  const quotedJumpTarget = useMemo<QuotedMessageJumpTarget | null>(() => {
+    if (!hasQuote) return null
 
-  const renderQuotedMessageBlock = useCallback((contentNode: React.ReactNode) => (
-    <div className="quoted-message">
-      {displayQuotedSenderName && <span className="quoted-sender">{displayQuotedSenderName}</span>}
-      <span className="quoted-text">{contentNode}</span>
+    const quotedServerId = normalizeMessageIdToken(
+      queryAppMsgText('refermsg > svrid') ||
+      queryAppMsgText('refermsg > msgsvrid') ||
+      queryAppMsgText('refermsg > newmsgid') ||
+      queryAppMsgText('refermsg > msgid')
+    )
+    const quotedCreateTime = parsePositiveInteger(
+      queryAppMsgText('refermsg > createtime') ||
+      queryAppMsgText('refermsg > create_time') ||
+      queryAppMsgText('refermsg > createTime')
+    )
+    const quotedLocalId = parsePositiveInteger(
+      queryAppMsgText('refermsg > localid') ||
+      queryAppMsgText('refermsg > local_id') ||
+      queryAppMsgText('refermsg > localId')
+    )
+    const normalizedQuotedContent = normalizeQuotedComparableText(quotedContent)
+
+    if (!quotedServerId && !quotedCreateTime && !quotedLocalId && !normalizedQuotedContent) {
+      return null
+    }
+
+    return {
+      sourceMessageKey: messageKey,
+      sourceCreateTime: Number(message.createTime || 0),
+      sessionId: session.username,
+      localId: quotedLocalId,
+      serverId: quotedServerId || undefined,
+      createTime: quotedCreateTime,
+      senderUsername: quotedSenderUsername || undefined,
+      content: normalizedQuotedContent || undefined
+    }
+  }, [hasQuote, message.createTime, messageKey, queryAppMsgText, quotedContent, quotedSenderUsername, session.username])
+  const handleQuotedJumpClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
+    if (isSelectionMode) return
+    if (!quotedJumpTarget || !onJumpToQuotedMessage) return
+    event.stopPropagation()
+    onJumpToQuotedMessage(quotedJumpTarget)
+  }, [isSelectionMode, onJumpToQuotedMessage, quotedJumpTarget])
+  const handleQuotedJumpKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return
+    if (isSelectionMode) return
+    if (!quotedJumpTarget || !onJumpToQuotedMessage) return
+    event.preventDefault()
+    event.stopPropagation()
+    onJumpToQuotedMessage(quotedJumpTarget)
+  }, [isSelectionMode, onJumpToQuotedMessage, quotedJumpTarget])
+  // Ambient Reply: single fixed layout (anchor above, message below)
+  const renderBubbleWithQuote = useCallback((quotedNode: React.ReactNode, messageNode: React.ReactNode) => (
+    <div className="bubble-content">
+      {quotedNode}
+      {messageNode}
     </div>
-  ), [displayQuotedSenderName])
+  ), [])
+
+  // Ambient Reply: render reply-anchor + ghost preview
+  const renderQuotedMessageBlock = useCallback((contentNode: React.ReactNode) => (
+    <div className="ambient-reply-wrapper">
+      {/* Reply anchor - always visible, subtle */}
+      <div
+        className={`reply-anchor ${quotedJumpTarget ? 'jumpable' : ''}`}
+        role={quotedJumpTarget && !isSelectionMode ? 'button' : undefined}
+        tabIndex={quotedJumpTarget && !isSelectionMode ? 0 : undefined}
+        onClick={handleQuotedJumpClick}
+        onKeyDown={handleQuotedJumpKeyDown}
+      >
+        <svg className="reply-anchor-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <polyline points="9 14 4 9 9 4" />
+          <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
+        </svg>
+        {displayQuotedSenderName && <span className="reply-anchor-name">{displayQuotedSenderName}</span>}
+        <span className="reply-anchor-sep">&middot;</span>
+        <span className="reply-anchor-excerpt">{contentNode}</span>
+      </div>
+      {/* Ghost preview - appears on hover */}
+      <div className="reply-ghost">
+        {displayQuotedSenderName && <div className="reply-ghost-sender">{displayQuotedSenderName}</div>}
+        <div className="reply-ghost-text">{contentNode}</div>
+      </div>
+    </div>
+  ), [displayQuotedSenderName, handleQuotedJumpClick, handleQuotedJumpKeyDown, isSelectionMode, quotedJumpTarget])
 
   const handlePlayVideo = useCallback(async () => {
     if (!videoInfo?.videoUrl) return
@@ -10773,6 +10999,7 @@ function MessageBubble({
       isSystem={isSystem}
       isEmoji={isEmoji}
       isImage={isImage}
+      isVideo={isVideo}
       isVoice={isVoice}
       emojiHasAsset={Boolean(message.emojiCdnUrl || message.emojiLocalPath)}
       emojiError={emojiError}
@@ -10802,6 +11029,7 @@ const MemoMessageBubble = React.memo(MessageBubble, (prevProps, nextProps) => {
   if (prevProps.isSelected !== nextProps.isSelected) return false
   if (prevProps.onRequireModelDownload !== nextProps.onRequireModelDownload) return false
   if (prevProps.onContextMenu !== nextProps.onContextMenu) return false
+  if (prevProps.onJumpToQuotedMessage !== nextProps.onJumpToQuotedMessage) return false
   if (prevProps.onToggleSelection !== nextProps.onToggleSelection) return false
 
   return (
