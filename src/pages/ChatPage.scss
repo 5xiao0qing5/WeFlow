@@ -2499,7 +2499,7 @@
     padding: 2px 6px 2px 4px;
     border-radius: 8px;
     background: transparent;
-    opacity: 0.42;
+    opacity: 0.68;
     transition: opacity 0.35s ease, background-color 0.35s ease;
     user-select: none;
     max-width: 100%;
@@ -2524,7 +2524,7 @@
     width: 13px;
     height: 13px;
     color: var(--primary);
-    opacity: 0.7;
+    opacity: 0.86;
     flex-shrink: 0;
     transition: opacity 0.3s ease;
   }
@@ -2555,7 +2555,7 @@
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    opacity: 0.7;
+    opacity: 0.92;
 
     // Hide inline emoji images in anchor excerpt
     .inline-emoji {
@@ -2616,7 +2616,7 @@
     font-size: 12.5px;
     line-height: 1.5;
     color: var(--text-secondary);
-    opacity: 0.82;
+    opacity: 0.94;
     padding-left: 6px;
     display: -webkit-box;
     -webkit-line-clamp: 3;
@@ -2640,19 +2640,19 @@
   }
 
   .reply-anchor-name {
-    color: color-mix(in srgb, var(--on-primary) 92%, var(--primary));
+    color: color-mix(in srgb, var(--on-primary) 96%, var(--primary));
   }
 
   .reply-anchor-excerpt {
-    color: color-mix(in srgb, var(--on-primary) 72%, var(--primary));
+    color: color-mix(in srgb, var(--on-primary) 86%, var(--primary));
   }
 
   .reply-anchor-sep {
-    color: color-mix(in srgb, var(--on-primary) 50%, var(--primary));
+    color: color-mix(in srgb, var(--on-primary) 68%, var(--primary));
   }
 
   .reply-anchor-icon {
-    color: color-mix(in srgb, var(--on-primary) 80%, var(--primary));
+    color: color-mix(in srgb, var(--on-primary) 90%, var(--primary));
   }
 
   &:hover .reply-anchor {
