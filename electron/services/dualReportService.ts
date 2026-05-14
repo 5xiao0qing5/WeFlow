@@ -1,6 +1,5 @@
 import { parentPort } from 'worker_threads'
 import { wcdbService } from './wcdbService'
-import { ConfigService } from './config'
 
 
 export interface DualReportMessage {
@@ -110,12 +109,11 @@ class DualReportService {
     if (!dbPath) return { success: false, error: '未配置数据库路径' }
     if (!decryptKey) return { success: false, error: '未配置解密密钥' }
 
-    const configService = ConfigService.getInstance()
-    const accountDir = configService.getAccountDir(dbPath, wxid)
+    const cleanedWxid = this.cleanAccountDirName(wxid)
+    const accountDir = this.configService.getAccountDir(dbPath, wxid)
     if (!accountDir) return { success: false, error: '无法找到账号目录' }
     const ok = await wcdbService.open(accountDir, decryptKey)
     if (!ok) return { success: false, error: 'WCDB 打开失败' }
-    const cleanedWxid = this.cleanAccountDirName(wxid)
     return { success: true, cleanedWxid, rawWxid: wxid }
   }
 
