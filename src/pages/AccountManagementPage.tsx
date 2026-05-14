@@ -46,7 +46,43 @@ type NoticeState =
 
 const SIDEBAR_USER_PROFILE_CACHE_KEY = 'sidebar_user_profile_cache_v1'
 const ACCOUNT_PROFILES_CACHE_KEY = 'account_profiles_cache_v1'
-const hiddenDeletedAccountIds = new Set<string>()
+
+const HIDDEN_DELETED_ACCOUNT_NORM_IDS_KEY = 'weflow_account_mgmt_hidden_deleted_norm_v1'
+
+const readHiddenDeletedAccountNormIds = (): Set<string> => {
+  try {
+    const raw = window.localStorage.getItem(HIDDEN_DELETED_ACCOUNT_NORM_IDS_KEY)
+    if (!raw) return new Set()
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return new Set()
+    return new Set(parsed.filter((x): x is string => typeof x === 'string' && x.length > 0))
+  } catch {
+    return new Set()
+  }
+}
+
+const writeHiddenDeletedAccountNormIds = (ids: Set<string>): void => {
+  try {
+    window.localStorage.setItem(HIDDEN_DELETED_ACCOUNT_NORM_IDS_KEY, JSON.stringify(Array.from(ids)))
+  } catch {
+    
+  }
+}
+
+const addHiddenDeletedAccountNormId = (normalized: string): void => {
+  if (!normalized) return
+  const next = readHiddenDeletedAccountNormIds()
+  next.add(normalized)
+  writeHiddenDeletedAccountNormIds(next)
+}
+
+const removeHiddenDeletedAccountNormId = (normalized: string): void => {
+  if (!normalized) return
+  const next = readHiddenDeletedAccountNormIds()
+  if (!next.delete(normalized)) return
+  writeHiddenDeletedAccountNormIds(next)
+}
+
 const DEFAULT_ACCOUNT_DISPLAY_NAME = '微信用户'
 
 const normalizeAccountId = (value?: string | null): string => {
@@ -194,12 +230,14 @@ function AccountManagementPage() {
         })
       }
 
-      // 被“删除配置”操作移除的账号，在当前会话中从列表隐藏；
-      // 若后续再次生成配置，则自动恢复展示。
+      // 被「删除配置」移除的账号：微信目录仍在扫描结果里会出现无配置条目，持久化隐藏避免误导；
+      // 若后续再次保存该账号配置，则自动恢复展示。
+      const hiddenDeletedNormIds = readHiddenDeletedAccountNormIds()
       for (const [normalized, item] of Array.from(merged.entries())) {
-        if (!hiddenDeletedAccountIds.has(normalized)) continue
+        if (!hiddenDeletedNormIds.has(normalized)) continue
         if (item.hasConfig) {
-          hiddenDeletedAccountIds.delete(normalized)
+          hiddenDeletedNormIds.delete(normalized)
+          writeHiddenDeletedAccountNormIds(hiddenDeletedNormIds)
           continue
         }
         merged.delete(normalized)
@@ -362,7 +400,7 @@ function AccountManagementPage() {
           const [nextWxid, nextConfig] = remainingEntries[0]
           await applyWxidConfig(nextWxid, nextConfig || null)
           window.dispatchEvent(new CustomEvent('wxid-changed', { detail: { wxid: nextWxid } }))
-          hiddenDeletedAccountIds.add(normalizedTarget)
+          addHiddenDeletedAccountNormId(normalizedTarget)
           setDeleteUndoState(undoPayload)
           setNotice({ type: 'success', text: `已删除「${targetWxid}」配置，并切换到「${nextWxid}」` })
           await loadAccounts()
@@ -375,14 +413,14 @@ function AccountManagementPage() {
         await configService.setImageAesKey('')
         setDbConnected(false)
         window.dispatchEvent(new CustomEvent('wxid-changed', { detail: { wxid: '' } }))
-        hiddenDeletedAccountIds.add(normalizedTarget)
+        addHiddenDeletedAccountNormId(normalizedTarget)
         setDeleteUndoState(undoPayload)
         setNotice({ type: 'info', text: `已删除「${targetWxid}」配置，当前无可用账号配置，可撤回或添加账号` })
         await loadAccounts()
         return
       }
 
-      hiddenDeletedAccountIds.add(normalizedTarget)
+      addHiddenDeletedAccountNormId(normalizedTarget)
       setDeleteUndoState(undoPayload)
       setNotice({ type: 'success', text: `已删除账号「${targetWxid}」配置` })
       await loadAccounts()
@@ -406,7 +444,7 @@ function AccountManagementPage() {
         restoredConfigs[key] = configValue || {}
       }
       await configService.setWxidConfigs(restoredConfigs)
-      hiddenDeletedAccountIds.delete(normalizeAccountId(deleteUndoState.targetWxid) || deleteUndoState.targetWxid)
+      removeHiddenDeletedAccountNormId(normalizeAccountId(deleteUndoState.targetWxid) || deleteUndoState.targetWxid)
 
       const accountProfileCache = readAccountProfilesCache()
       for (const [key, profile] of deleteUndoState.deletedProfileEntries) {
