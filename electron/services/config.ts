@@ -225,7 +225,7 @@ export class ConfigService {
       aiModelApiBaseUrl: '',
       aiModelApiKey: '',
       aiModelApiModel: 'gpt-4o-mini',
-      aiModelApiMaxTokens: 200,
+      aiModelApiMaxTokens: 1024,
       aiInsightEnabled: false,
       aiInsightApiBaseUrl: '',
       aiInsightApiKey: '',

@@ -36,9 +36,9 @@ const SILENCE_SCAN_INITIAL_DELAY_MS = 3 * 60 * 1000
 
 /** 单次 API 请求超时（毫秒） */
 const API_TIMEOUT_MS = 45_000
-const API_MAX_TOKENS_DEFAULT = 200
+const API_MAX_TOKENS_DEFAULT = 1024
 const API_MAX_TOKENS_MIN = 1
-const API_MAX_TOKENS_MAX = 65_535
+const API_MAX_TOKENS_MAX = 2_000_000
 const API_TEMPERATURE = 0.7
 const INSIGHT_NOTIFICATION_AVATAR_URL = './assets/insight/AI_Insight.png'
 
@@ -582,7 +582,7 @@ ${topMentionText}
         25_000,
         maxTokens
       )
-      const insight = result.trim().slice(0, 400)
+      const insight = result.trim()
       if (!insight) return { success: false, message: '模型返回为空' }
       return { success: true, message: '生成成功', insight }
     } catch (error) {
@@ -1214,7 +1214,7 @@ ${topMentionText}
       }
       if (!this.isEnabled()) return
 
-      const insight = result.slice(0, 120)
+      const insight = result.trim()
       const notifTitle = `见解 · ${resolvedDisplayName}`
       const recordLog: InsightRecordLog = {
         endpoint,
