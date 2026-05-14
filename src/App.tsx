@@ -150,7 +150,7 @@ function App() {
     }
   }, [isOnboardingWindow, isNotificationWindow, isAnnualReportWindow, isDualReportWindow])
 
-  // 应用主题
+  // 应用主题 (accent color + light/dark mode)
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
     const applyMode = (mode: ThemeMode, systemDark?: boolean) => {

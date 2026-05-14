@@ -1698,6 +1698,7 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
                   if (selected) return
                   setQuoteLayout(option.value)
                   await configService.setQuoteLayout(option.value)
+                  window.dispatchEvent(new CustomEvent('quote-layout-changed', { detail: option.value }))
                   showMessage(option.successMessage, true)
                 }}
                 role="radio"
@@ -1711,16 +1712,30 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
                         {isQuoteBottom ? (
                           <>
                             <div className="message-text">拍得真不错!</div>
-                            <div className="quoted-message">
-                              <span className="quoted-sender">张三</span>
-                              <span className="quoted-text">那天去爬山的照片...</span>
+                            <div className="ambient-reply-wrapper">
+                              <div className="reply-anchor">
+                                <svg className="reply-anchor-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="9 14 4 9 9 4" />
+                                  <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
+                                </svg>
+                                <span className="reply-anchor-name">张三</span>
+                                <span className="reply-anchor-sep">&middot;</span>
+                                <span className="reply-anchor-excerpt">那天去爬山的照片...</span>
+                              </div>
                             </div>
                           </>
                         ) : (
                           <>
-                            <div className="quoted-message">
-                              <span className="quoted-sender">张三</span>
-                              <span className="quoted-text">那天去爬山的照片...</span>
+                            <div className="ambient-reply-wrapper">
+                              <div className="reply-anchor">
+                                <svg className="reply-anchor-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="9 14 4 9 9 4" />
+                                  <path d="M20 20v-7a4 4 0 0 0-4-4H4" />
+                                </svg>
+                                <span className="reply-anchor-name">张三</span>
+                                <span className="reply-anchor-sep">&middot;</span>
+                                <span className="reply-anchor-excerpt">那天去爬山的照片...</span>
+                              </div>
                             </div>
                             <div className="message-text">拍得真不错!</div>
                           </>
@@ -2212,23 +2227,32 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
               />
             </div>
             <div className="anti-revoke-toolbar-actions">
-              <div className="anti-revoke-btn-group">
-                <button className="btn btn-secondary btn-sm" onClick={() => void handleRefreshAntiRevokeStatus()} disabled={busy}>
-                  <RefreshCw size={14} /> {isAntiRevokeRefreshing ? '刷新中...' : '刷新状态'}
-                </button>
-              </div>
-              <div className="anti-revoke-btn-group">
-                <button className="btn btn-secondary btn-sm" onClick={selectAllFiltered} disabled={busy || filteredSessionIds.length === 0 || allFilteredSelected}>
-                  全选
-                </button>
-                <button className="btn btn-secondary btn-sm" onClick={clearSelection} disabled={busy || selectedCount === 0}>
-                  清空选择
-                </button>
-              </div>
+              <button className="btn btn-secondary btn-sm" onClick={() => void handleRefreshAntiRevokeStatus()} disabled={busy}>
+                <RefreshCw size={14} /> {isAntiRevokeRefreshing ? '刷新中...' : '刷新状态'}
+              </button>
+            </div>
+          </div>
+
+          <div className="anti-revoke-selection-strip">
+            <div className="anti-revoke-selected-count">
+              <span>已选 <strong>{selectedCount}</strong> 个会话</span>
+              <span>筛选命中 <strong>{selectedInFilteredCount}</strong> / {filteredSessionIds.length}</span>
+            </div>
+            <div className="anti-revoke-selection-actions">
+              <button className="btn btn-secondary btn-sm" onClick={selectAllFiltered} disabled={busy || filteredSessionIds.length === 0 || allFilteredSelected}>
+                全选
+              </button>
+              <button className="btn btn-secondary btn-sm" onClick={clearSelection} disabled={busy || selectedCount === 0}>
+                清空选择
+              </button>
             </div>
           </div>
 
           <div className="anti-revoke-batch-actions">
+            <div className="anti-revoke-batch-copy">
+              <span className="anti-revoke-section-label">批量部署</span>
+              <span>对已选会话执行防撤回安装或卸载</span>
+            </div>
             <div className="anti-revoke-btn-group anti-revoke-batch-btns">
               <button className="btn btn-primary btn-sm" onClick={() => void handleInstallAntiRevokeTriggers()} disabled={busy || selectedCount === 0}>
                 {isAntiRevokeInstalling ? '安装中...' : '批量安装'}
@@ -2236,10 +2260,6 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
               <button className="btn btn-secondary btn-sm" onClick={() => void handleUninstallAntiRevokeTriggers()} disabled={busy || selectedCount === 0}>
                 {isAntiRevokeUninstalling ? '卸载中...' : '批量卸载'}
               </button>
-            </div>
-            <div className="anti-revoke-selected-count">
-              <span>已选 <strong>{selectedCount}</strong> 个会话</span>
-              <span>筛选命中 <strong>{selectedInFilteredCount}</strong> / {filteredSessionIds.length}</span>
             </div>
           </div>
         </div>
@@ -2540,11 +2560,6 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
   const renderModelsTab = () => (
     <div className="tab-content">
       <div className="form-group">
-        <label>模型管理</label>
-        <span className="form-hint">管理语音识别模型</span>
-      </div>
-
-      <div className="form-group">
         <label>语音识别模型 (Whisper)</label>
         <span className="form-hint">用于语音消息转文字功能</span>
 
@@ -2560,12 +2575,6 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
                   <span className="status-indicator success"><Check size={14} /> 已安装</span>
                 ) : (
                   <span className="status-indicator warning">未安装</span>
-                )}
-                {resolvedWhisperModelPath && (
-                  <div className="model-path-block">
-                    <span className="path-label">模型目录</span>
-                    <div className="path-text" title={resolvedWhisperModelPath}>{resolvedWhisperModelPath}</div>
-                  </div>
                 )}
               </div>
             </div>
@@ -2597,25 +2606,21 @@ function SettingsPage({ onClose }: SettingsPageProps = {}) {
                 )}
               </div>
             )}
-          </div>
 
-          <div className="sub-setting">
-            <div className="sub-label">自定义模型目录</div>
-            <div className="path-selector">
+            <div className="model-directory-control">
               <input
                 type="text"
-                value={whisperModelDir}
+                value={resolvedWhisperModelPath}
                 readOnly
                 placeholder="默认目录"
+                title={resolvedWhisperModelPath || '默认目录'}
               />
-              <button className="btn-icon" onClick={handleSelectWhisperModelDir} title="选择目录">
-                <FolderOpen size={18} />
+              <button className="btn btn-secondary btn-sm" onClick={handleSelectWhisperModelDir} title="选择自定义目录">
+                <FolderOpen size={14} /> 选择自定义目录
               </button>
-              {whisperModelDir && (
-                <button className="btn-icon danger" onClick={handleResetWhisperModelDir} title="重置为默认">
-                  <RotateCcw size={18} />
-                </button>
-              )}
+              <button className="btn btn-secondary btn-sm" onClick={handleResetWhisperModelDir} disabled={!whisperModelDir} title="恢复默认">
+                <RotateCcw size={14} /> 恢复默认
+              </button>
             </div>
           </div>
         </div>
