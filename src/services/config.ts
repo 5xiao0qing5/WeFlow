@@ -1878,13 +1878,13 @@ export async function getAiModelApiMaxTokens(): Promise<number> {
   if (typeof value === 'number' && Number.isFinite(value) && value > 0) {
     return Math.floor(value)
   }
-  return 200
+  return 1024
 }
 
 export async function setAiModelApiMaxTokens(maxTokens: number): Promise<void> {
   const normalized = Number.isFinite(maxTokens)
-    ? Math.min(65535, Math.max(1, Math.floor(maxTokens)))
-    : 200
+    ? Math.min(2000000, Math.max(1, Math.floor(maxTokens)))
+    : 1024
   await config.set(CONFIG_KEYS.AI_MODEL_API_MAX_TOKENS, normalized)
 }
 
