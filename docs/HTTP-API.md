@@ -173,6 +173,8 @@ curl "http://127.0.0.1:5031/api/v1/messages?talker=xxx@chatroom&media=1&image=1&
 - `content`
 - `rawContent`
 - `parsedContent`
+- `replyToMessageId`（引用回复目标消息的 `serverId`，仅引用消息返回）
+- `quote`（引用消息快照，包含被引用消息的 ID、发送者、内容和类型）
 - `mediaType`
 - `mediaFileName`
 - `mediaUrl`
@@ -184,7 +186,7 @@ curl "http://127.0.0.1:5031/api/v1/messages?talker=xxx@chatroom&media=1&image=1&
 {
   "success": true,
   "talker": "xxx@chatroom",
-  "count": 2,
+  "count": 3,
   "hasMore": true,
   "media": {
     "enabled": true,
@@ -202,6 +204,25 @@ curl "http://127.0.0.1:5031/api/v1/messages?talker=xxx@chatroom&media=1&image=1&
       "content": "你好",
       "rawContent": "你好",
       "parsedContent": "你好"
+    },
+    {
+      "localId": 125,
+      "serverId": "6116895530414915133",
+      "localType": 244813135921,
+      "createTime": 1738713700,
+      "isSend": 0,
+      "senderUsername": "wxid_member",
+      "content": "收到",
+      "rawContent": "<msg>...</msg>",
+      "parsedContent": "收到",
+      "replyToMessageId": "6116895530414915131",
+      "quote": {
+        "platformMessageId": "6116895530414915131",
+        "sender": "wxid_other",
+        "accountName": "张三",
+        "content": "你好",
+        "type": 0
+      }
     },
     {
       "localId": 124,
@@ -243,6 +264,7 @@ curl "http://127.0.0.1:5031/api/v1/messages?talker=xxx@chatroom&media=1&image=1&
 - `messages[].type`
 - `messages[].content`
 - `messages[].platformMessageId`
+- `messages[].replyToMessageId`
 - `messages[].mediaPath`
 
 群聊里 `groupNickname` 会优先来自群成员群昵称；若源数据缺失，则回退为空或展示名。

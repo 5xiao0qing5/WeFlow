@@ -52,6 +52,20 @@ interface ChatLabMessage {
   mediaPath?: string
 }
 
+interface ApiQuoteSnapshot {
+  platformMessageId?: string
+  sender?: string
+  accountName?: string
+  content?: string
+  type?: number
+}
+
+interface ApiQuoteInfo {
+  replyText?: string
+  replyToMessageId?: string
+  quote?: ApiQuoteSnapshot
+}
+
 interface ChatLabData {
   chatlab: ChatLabHeader
   meta: ChatLabMeta
@@ -1600,8 +1614,8 @@ class HttpService {
 
   private toApiMessage(msg: Message, media?: ApiExportedMedia): Record<string, any> {
     const serverId = this.getMessageServerId(msg)
-
-    return {
+    const quoteInfo = this.extractApiQuoteInfo(msg)
+    const apiMessage: Record<string, any> = {
       localId: msg.localId,
       serverId: serverId || '0',
       localType: msg.localType,
@@ -1609,7 +1623,7 @@ class HttpService {
       sortSeq: msg.sortSeq,
       isSend: msg.isSend,
       senderUsername: msg.senderUsername,
-      content: this.getMessageContent(msg),
+      content: this.getMessageContent(msg, quoteInfo),
       rawContent: msg.rawContent,
       parsedContent: msg.parsedContent,
       mediaType: media?.kind,
@@ -1617,6 +1631,15 @@ class HttpService {
       mediaUrl: media ? `http://${this.host}:${this.port}/api/v1/media/${media.relativePath}` : undefined,
       mediaLocalPath: media?.fullPath
     }
+
+    if (quoteInfo?.replyToMessageId) {
+      apiMessage.replyToMessageId = quoteInfo.replyToMessageId
+    }
+    if (quoteInfo?.quote && Object.keys(quoteInfo.quote).length > 0) {
+      apiMessage.quote = quoteInfo.quote
+    }
+
+    return apiMessage
   }
 
   private getMessageServerId(msg: Message): string {
@@ -1896,17 +1919,22 @@ class HttpService {
     // 转换消息
     const chatLabMessages: ChatLabMessage[] = messages.map(msg => {
       const senderInfo = this.resolveChatLabSenderInfo(msg, talkerId, talkerName, myWxid, isGroup, senderNames, groupNicknamesMap)
+      const quoteInfo = this.extractApiQuoteInfo(msg)
 
-      return {
+      const chatLabMessage: ChatLabMessage = {
         sender: senderInfo.sender,
         accountName: senderInfo.accountName,
         groupNickname: senderInfo.groupNickname,
         timestamp: msg.createTime,
         type: this.mapMessageType(msg.localType, msg),
-        content: this.getMessageContent(msg),
+        content: this.getMessageContent(msg, quoteInfo),
         platformMessageId: this.getMessageServerId(msg) || undefined,
         mediaPath: mediaMap.get(msg.localId) ? `http://${this.host}:${this.port}/api/v1/media/${mediaMap.get(msg.localId)!.relativePath}` : undefined
       }
+      if (quoteInfo?.replyToMessageId) {
+        chatLabMessage.replyToMessageId = quoteInfo.replyToMessageId
+      }
+      return chatLabMessage
     })
 
     return {
@@ -1995,7 +2023,7 @@ class HttpService {
   }
 
   private extractType49Subtype(rawContent: string): string {
-    const content = String(rawContent || '')
+    const content = this.normalizeAppMessageContent(String(rawContent || ''))
     if (!content) return ''
 
     const appmsgMatch = /<appmsg[\s\S]*?>([\s\S]*?)<\/appmsg>/i.exec(content)
@@ -2049,9 +2077,9 @@ class HttpService {
     }
   }
 
-  private getType49Content(msg: Message): string {
+  private getType49Content(msg: Message, quoteInfo?: ApiQuoteInfo): string {
     const subtype = this.resolveType49Subtype(msg)
-    const title = msg.linkTitle || msg.fileName || ''
+    const title = msg.linkTitle || msg.fileName || this.extractAppMessageTitle(msg.rawContent) || ''
 
     switch (subtype) {
       case '5':
@@ -2065,7 +2093,7 @@ class HttpService {
       case '36':
         return title ? `[小程序] ${title}` : '[小程序]'
       case '57':
-        return msg.parsedContent || title || '[引用消息]'
+        return msg.parsedContent || quoteInfo?.replyText || title || '[引用消息]'
       case '2000':
         return title ? `[转账] ${title}` : '[转账]'
       case '2001':
@@ -2080,7 +2108,7 @@ class HttpService {
   /**
    * 获取消息内容
    */
-  private getMessageContent(msg: Message): string | null {
+  private getMessageContent(msg: Message, quoteInfo?: ApiQuoteInfo): string | null {
     const normalizeTextContent = (value: string | null | undefined): string | null => {
       const text = String(value || '')
       if (!text) return null
@@ -2088,7 +2116,11 @@ class HttpService {
     }
 
     if (msg.localType === 49) {
-      return this.getType49Content(msg)
+      return this.getType49Content(msg, quoteInfo)
+    }
+
+    if (this.isReplyMessage(msg, quoteInfo)) {
+      return msg.parsedContent || quoteInfo?.replyText || this.extractAppMessageTitle(msg.rawContent) || '[引用消息]'
     }
 
     // 优先使用已解析的内容
@@ -2113,9 +2145,255 @@ class HttpService {
       case 48:
         return '[位置]'
       case 49:
-        return this.getType49Content(msg)
+        return this.getType49Content(msg, quoteInfo)
       default:
         return normalizeTextContent(msg.parsedContent || msg.rawContent) || null
+    }
+  }
+
+  private isReplyMessage(msg: Message, quoteInfo?: ApiQuoteInfo): boolean {
+    if (!quoteInfo?.replyToMessageId && !quoteInfo?.quote) return false
+    if (msg.localType === 244813135921) return true
+    if (msg.localType === 49 && this.resolveType49Subtype(msg) === '57') return true
+    return false
+  }
+
+  private extractApiQuoteInfo(msg: Message): ApiQuoteInfo | undefined {
+    const rawContent = String(msg.rawContent || msg.content || '')
+    if (!rawContent || !this.messageMayContainQuote(rawContent)) {
+      return undefined
+    }
+
+    const normalized = this.normalizeAppMessageContent(rawContent)
+    const referMsgXml = this.extractXmlBlock(normalized, 'refermsg')
+    if (!referMsgXml) return undefined
+
+    const replyToMessageId = this.extractReplyToMessageId(referMsgXml)
+    const referTypeRaw = this.extractXmlValue(referMsgXml, 'type')
+    const referContentRaw = this.extractXmlValue(referMsgXml, 'content')
+    const quoteContent = this.resolveQuotedContent(referMsgXml, referTypeRaw, referContentRaw)
+    const sender = this.resolveQuotedSender(referMsgXml)
+    const accountName = this.resolveQuotedAccountName(referMsgXml)
+    const quoteType = this.mapQuotedMessageType(referTypeRaw, referContentRaw)
+
+    const quote: ApiQuoteSnapshot = {}
+    if (replyToMessageId) quote.platformMessageId = replyToMessageId
+    if (sender) quote.sender = sender
+    if (accountName) quote.accountName = accountName
+    if (quoteContent) quote.content = quoteContent
+    if (quoteType !== undefined) quote.type = quoteType
+
+    const replyText = this.extractAppMessageTitle(normalized)
+
+    if (!replyToMessageId && Object.keys(quote).length === 0 && !replyText) {
+      return undefined
+    }
+
+    return {
+      replyText: replyText || undefined,
+      replyToMessageId,
+      quote: Object.keys(quote).length > 0 ? quote : undefined
+    }
+  }
+
+  private messageMayContainQuote(content: string): boolean {
+    return content.includes('<refermsg>') ||
+      content.includes('&lt;refermsg&gt;') ||
+      content.includes('<type>57</type>') ||
+      content.includes('&lt;type&gt;57&lt;/type&gt;')
+  }
+
+  private normalizeAppMessageContent(content: string): string {
+    return this.decodeHtmlEntities(String(content || ''))
+  }
+
+  private decodeHtmlEntities(text: string): string {
+    if (!text) return ''
+    return text
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&amp;/g, '&')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/&apos;/g, "'")
+  }
+
+  private extractXmlBlock(xml: string, tag: string): string {
+    if (!xml || !tag) return ''
+    const match = new RegExp(`<${tag}\\b[^>]*>[\\s\\S]*?<\\/${tag}>`, 'i').exec(xml)
+    return match ? match[0] : ''
+  }
+
+  private extractXmlValue(xml: string, tag: string): string {
+    if (!xml || !tag) return ''
+    const match = new RegExp(`<${tag}\\b[^>]*>([\\s\\S]*?)<\\/${tag}>`, 'i').exec(xml)
+    if (!match) return ''
+    return this.decodeHtmlEntities(match[1])
+      .replace(/<!\[CDATA\[/g, '')
+      .replace(/\]\]>/g, '')
+      .trim()
+  }
+
+  private extractAppMessageTitle(content: string): string {
+    const normalized = this.normalizeAppMessageContent(content || '')
+    if (!normalized) return ''
+    const appMsgXml = this.extractXmlBlock(normalized, 'appmsg')
+    return this.sanitizeQuotedContent(this.extractXmlValue(appMsgXml || normalized, 'title'))
+  }
+
+  private extractReplyToMessageId(referMsgXml: string): string | undefined {
+    const candidates = [
+      this.extractXmlValue(referMsgXml, 'svrid'),
+      this.extractXmlValue(referMsgXml, 'msgsvrid'),
+      this.extractXmlValue(referMsgXml, 'newmsgid'),
+      this.extractXmlValue(referMsgXml, 'msgid')
+    ]
+
+    for (const candidate of candidates) {
+      const normalized = this.normalizeUnsignedIntToken(candidate)
+      if (normalized && normalized !== '0') return normalized
+    }
+
+    return undefined
+  }
+
+  private resolveQuotedSender(referMsgXml: string): string | undefined {
+    const chatusr = this.extractXmlValue(referMsgXml, 'chatusr')
+    if (chatusr) return chatusr
+
+    const fromusr = this.extractXmlValue(referMsgXml, 'fromusr')
+    if (fromusr && !fromusr.endsWith('@chatroom')) return fromusr
+
+    return undefined
+  }
+
+  private resolveQuotedAccountName(referMsgXml: string): string | undefined {
+    const displayName = this.extractXmlValue(referMsgXml, 'displayname')
+    if (!displayName || this.looksLikeWxid(displayName)) return undefined
+    return displayName
+  }
+
+  private looksLikeWxid(value: string): boolean {
+    const text = String(value || '').trim().toLowerCase()
+    return Boolean(text) && (text.startsWith('wxid_') || /^wx[a-z0-9_-]{4,}$/.test(text))
+  }
+
+  private resolveQuotedContent(referMsgXml: string, referTypeRaw: string, referContentRaw: string): string {
+    const referType = String(referTypeRaw || '').trim()
+    switch (referType) {
+      case '1':
+        return this.extractPreferredQuotedText(referMsgXml)
+      case '3':
+        return '[图片]'
+      case '34':
+        return '[语音]'
+      case '43':
+        return '[视频]'
+      case '47':
+        return '[动画表情]'
+      case '42':
+        return '[名片]'
+      case '48':
+        return '[位置]'
+      case '49': {
+        const innerType = this.extractType49Subtype(referContentRaw)
+        if (innerType === '57') {
+          return this.extractAppMessageTitle(referContentRaw) || '[引用消息]'
+        }
+        if (innerType === '6') return '[文件]'
+        if (innerType === '19') return '[聊天记录]'
+        if (innerType === '33' || innerType === '36') return '[小程序]'
+        return '[链接]'
+      }
+      default:
+        if (!referContentRaw || referContentRaw.includes('wxid_')) return '[消息]'
+        return this.sanitizeQuotedContent(referContentRaw)
+    }
+  }
+
+  private extractPreferredQuotedText(referMsgXml: string): string {
+    const candidateTags = [
+      'selectedcontent',
+      'selectedtext',
+      'selectcontent',
+      'selecttext',
+      'quotecontent',
+      'quotetext',
+      'partcontent',
+      'parttext',
+      'excerpt',
+      'summary',
+      'preview',
+      'content'
+    ]
+
+    for (const tag of candidateTags) {
+      const value = this.sanitizeQuotedContent(this.extractXmlValue(referMsgXml, tag))
+      if (value) return value
+    }
+
+    return ''
+  }
+
+  private sanitizeQuotedContent(content: string): string {
+    if (!content) return ''
+    return String(content || '')
+      .replace(/wxid_[A-Za-z0-9_-]{3,}/g, '')
+      .replace(/^[\s:：\-]+/, '')
+      .replace(/[:：]{2,}/g, ':')
+      .replace(/^[\s:：\-]+/, '')
+      .replace(/\s+/g, ' ')
+      .trim()
+  }
+
+  private mapQuotedMessageType(referTypeRaw: string, referContentRaw: string): number | undefined {
+    const referType = String(referTypeRaw || '').trim()
+    switch (referType) {
+      case '1':
+        return ChatLabType.TEXT
+      case '3':
+        return ChatLabType.IMAGE
+      case '34':
+        return ChatLabType.VOICE
+      case '43':
+        return ChatLabType.VIDEO
+      case '47':
+        return ChatLabType.EMOJI
+      case '48':
+        return ChatLabType.LOCATION
+      case '42':
+        return ChatLabType.CONTACT
+      case '50':
+        return ChatLabType.CALL
+      case '10000':
+        return ChatLabType.SYSTEM
+      case '49':
+        return this.mapQuotedType49MessageType(referContentRaw)
+      default:
+        return undefined
+    }
+  }
+
+  private mapQuotedType49MessageType(content: string): number {
+    const subtype = this.extractType49Subtype(content)
+    switch (subtype) {
+      case '57':
+        return ChatLabType.REPLY
+      case '6':
+        return ChatLabType.FILE
+      case '19':
+        return ChatLabType.FORWARD
+      case '33':
+      case '36':
+        return ChatLabType.SHARE
+      case '2000':
+        return ChatLabType.TRANSFER
+      case '2001':
+        return ChatLabType.RED_PACKET
+      case '5':
+      case '49':
+      default:
+        return ChatLabType.LINK
     }
   }
 
