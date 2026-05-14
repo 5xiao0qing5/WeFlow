@@ -1,6 +1,6 @@
 import { parentPort } from 'worker_threads'
 import { wcdbService } from './wcdbService'
-import { ConfigService } from './config'
+import { resolveAccountDir } from './accountDirResolver'
 
 export interface TopContact {
   username: string
@@ -159,8 +159,7 @@ class AnnualReportService {
     if (!dbPath) return { success: false, error: '未配置数据库路径' }
     if (!decryptKey) return { success: false, error: '未配置解密密钥' }
 
-    const configService = ConfigService.getInstance()
-    const accountDir = configService.getAccountDir(dbPath, wxid)
+    const accountDir = resolveAccountDir(dbPath, wxid)
     if (!accountDir) return { success: false, error: '未找到账号目录' }
 
     const ok = await wcdbService.open(accountDir, decryptKey)
